@@ -19,6 +19,7 @@ export const demoProperties: Property[] = [
     address: 'Ngong Road, Kilimani',
     city: 'Nairobi',
     unitCount: 5,
+    landlord: 'Margaret Wambui',
   },
   {
     id: 'prop-acacia',
@@ -27,6 +28,7 @@ export const demoProperties: Property[] = [
     address: 'Mbagathi Way',
     city: 'Nairobi',
     unitCount: 4,
+    landlord: 'Daniel Kiprop',
   },
 ];
 

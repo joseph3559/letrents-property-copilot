@@ -28,6 +28,8 @@ export interface Property {
   address: string;
   city: string;
   unitCount: number;
+  /** Synthetic landlord/owner name (demo dataset). */
+  landlord: string;
 }
 
 export interface Unit {

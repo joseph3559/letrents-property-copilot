@@ -49,6 +49,17 @@ describe('DemoAdapter', () => {
     expect(tenant?.fullName).toBe('Brian Otieno');
   });
 
+  it('lists units and tenants per property with landlord attribution', async () => {
+    const adapter = makeAdapter();
+    const property = await adapter.getProperty(ctx, 'prop-sunrise');
+    expect(property.landlord).toBe('Margaret Wambui');
+    const units = await adapter.listUnits(ctx, 'prop-sunrise');
+    expect(units.map((u) => u.unitNumber)).toEqual(['A101', 'A102', 'B201', 'B202', 'C301']);
+    const tenants = await adapter.listTenants(ctx, 'prop-sunrise');
+    expect(tenants.length).toBe(4);
+    await expect(adapter.listUnits(foreignCtx, 'prop-sunrise')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
   it('rejects maintenance creation from non-managers', async () => {
     const adapter = makeAdapter();
     await expect(

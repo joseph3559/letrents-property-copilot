@@ -73,6 +73,8 @@ export interface StaffRecommendation {
 export interface PropertyManagementAdapter {
   searchProperties(ctx: UserContext, query: string): Promise<Property[]>;
   getProperty(ctx: UserContext, propertyId: string): Promise<Property>;
+  listUnits(ctx: UserContext, propertyId: string): Promise<Unit[]>;
+  listTenants(ctx: UserContext, propertyId: string): Promise<Tenant[]>;
   getUnit(ctx: UserContext, unitId: string): Promise<Unit>;
   findUnits(ctx: UserContext, propertyId: string, unitNumberQuery: string): Promise<Unit[]>;
   getTenantByUnit(ctx: UserContext, unitId: string): Promise<Tenant | null>;

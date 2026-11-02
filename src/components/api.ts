@@ -38,6 +38,7 @@ export interface PropertyView {
   name: string;
   address: string;
   city: string;
+  landlord?: string;
 }
 
 export interface UnitView {
@@ -81,6 +82,30 @@ export interface StaffRecView {
   score: number;
 }
 
+export interface SegmentView {
+  phrase: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  width: number;
+  height: number;
+  confidence: number | null;
+}
+
+export interface PortfolioUnitView extends UnitView {
+  tenant: TenantView | null;
+}
+
+export interface PortfolioEntry {
+  property: PropertyView & { landlord: string };
+  totalUnits: number;
+  occupiedUnits: number;
+  pendingMaintenance: number;
+  inProgressMaintenance: number;
+  units: PortfolioUnitView[];
+}
+
 export interface TurnResult {
   conversation: ConversationView;
   assistantText: string;
@@ -98,6 +123,7 @@ export interface TurnResult {
   tenantDraft: string | null;
   needsClarification: string | null;
   safetyGuidance: string | null;
+  segments: SegmentView[];
 }
 
 export interface StatusView {
@@ -151,6 +177,8 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ decision }) }
     ),
   maintenance: () => request<MaintenanceView[]>('/api/copilot/maintenance'),
+  portfolio: () => request<PortfolioEntry[]>('/api/copilot/portfolio'),
+  reset: () => request<{ reset: boolean }>('/api/copilot/reset', { method: 'POST' }),
   activity: (conversationId?: string) =>
     request<AuditView[]>(
       `/api/copilot/activity${conversationId ? `?conversationId=${conversationId}` : ''}`

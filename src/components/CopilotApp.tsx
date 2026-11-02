@@ -6,6 +6,7 @@ import {
   BarChart3,
   Building2,
   CheckCircle2,
+  ChevronDown,
   CircleDashed,
   ClipboardList,
   Droplets,
@@ -14,9 +15,11 @@ import {
   Menu,
   MessageSquarePlus,
   PanelRight,
+  RotateCcw,
   SendHorizontal,
   ShieldAlert,
   Sparkles,
+  UserCheck,
   Waves,
   X,
   Zap,
@@ -28,12 +31,14 @@ import {
   ConversationSummary,
   DEMO_PROMPTS,
   MaintenanceView,
+  PortfolioEntry,
   StatusView,
   TurnResult,
 } from './api';
 import { ApprovalCard, TurnCards } from './ResultCards';
 import StepTimeline from './StepTimeline';
 import Typewriter from './Typewriter';
+import VoiceRecorder from './VoiceRecorder';
 
 const PROMPT_ICONS = [Droplets, ShieldAlert, Zap, BarChart3, Waves];
 
@@ -69,10 +74,15 @@ export default function CopilotApp() {
   const [freshTurn, setFreshTurn] = useState(false);
   const [records, setRecords] = useState<MaintenanceView[]>([]);
   const [activity, setActivity] = useState<AuditView[]>([]);
-  const [rightTab, setRightTab] = useState<'records' | 'activity'>('records');
+  const [portfolio, setPortfolio] = useState<PortfolioEntry[]>([]);
+  const [rightTab, setRightTab] = useState<'records' | 'portfolio' | 'activity'>('records');
+  const [recordFilter, setRecordFilter] = useState<'all' | 'open' | 'resolved'>('all');
+  const [expandedProperty, setExpandedProperty] = useState<string | null>('prop-sunrise');
+  const [resetting, setResetting] = useState(false);
   const [input, setInput] = useState('');
   const [imageName, setImageName] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
+  const [lastImage, setLastImage] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,16 +93,18 @@ export default function CopilotApp() {
 
   const refreshSide = useCallback(async (conversationId?: string) => {
     try {
-      const [st, recs, acts, convos] = await Promise.all([
+      const [st, recs, acts, convos, port] = await Promise.all([
         api.status(),
         api.maintenance(),
         api.activity(conversationId),
         api.conversations(),
+        api.portfolio(),
       ]);
       setStatus(st);
       setRecords(recs);
       setActivity(acts);
       setConversations(convos);
+      setPortfolio(port);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh');
     }
@@ -134,6 +146,7 @@ export default function CopilotApp() {
           tenantDraft: null,
           needsClarification: null,
           safetyGuidance: null,
+          segments: [],
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to open conversation');
@@ -153,6 +166,7 @@ export default function CopilotApp() {
         const result = await api.send(content, activeId, imageDataUrl);
         setTurn(result);
         setFreshTurn(true);
+        setLastImage(imageDataUrl ?? null);
         setActiveId(result.conversation.id);
         setInput('');
         setImageName(null);
@@ -217,12 +231,33 @@ export default function CopilotApp() {
     setActiveId(undefined);
     setTurn(null);
     setFreshTurn(false);
+    setLastImage(null);
     setInput('');
     setImageName(null);
     setImageDataUrl(undefined);
     setError(null);
     setMobileNav(false);
   }, []);
+
+  const resetDemo = useCallback(async () => {
+    if (!window.confirm('Reset the demo? This clears all conversations and copilot-created records.')) {
+      return;
+    }
+    setResetting(true);
+    setError(null);
+    try {
+      await api.reset();
+      setActiveId(undefined);
+      setTurn(null);
+      setFreshTurn(false);
+      setLastImage(null);
+      await refreshSide(undefined);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reset failed');
+    } finally {
+      setResetting(false);
+    }
+  }, [refreshSide]);
 
   const lastAssistantId =
     turn && freshTurn
@@ -231,13 +266,16 @@ export default function CopilotApp() {
 
   const sidebar = (
     <div className="flex h-full flex-col bg-letrents-navy text-white">
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+      <div className="px-4 pb-2 pt-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/letrents-logo-light.png" alt="LETRENTS" className="h-7 w-auto" />
-        <div className="leading-tight">
-          <div className="text-[13px] font-bold">Property Copilot</div>
-          <div className="text-[11px] text-slate-300/80">AI operations assistant</div>
+        <img src="/images/letrents-logo-dark.png" alt="LETRENTS" className="h-8 w-auto" />
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="text-sm font-bold tracking-tight text-white">Property Copilot</span>
+          <span className="rounded bg-letrents-teal/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-letrents-teal">
+            Demo
+          </span>
         </div>
+        <div className="text-[11px] text-slate-300/80">AI operations assistant</div>
       </div>
       <div className="px-3">
         <motion.button
@@ -296,25 +334,67 @@ export default function CopilotApp() {
           )}
         </div>
       </div>
-      <div className="border-t border-white/10 px-4 py-2.5 text-[10px] text-slate-400">
-        Demo workspace · synthetic data
+      <div className="border-t border-white/10 px-3 py-3">
+        <div className="flex items-center gap-2.5 rounded-lg bg-white/5 px-2.5 py-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-letrents-blue text-xs font-bold text-white">
+            DM
+          </span>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="flex items-center gap-1 text-xs font-bold text-white">
+              <UserCheck className="h-3 w-3 text-emerald-400" />
+              Demo Manager
+            </div>
+            <div className="truncate text-[10px] text-slate-300/80">Sunrise Org · manager role</div>
+          </div>
+        </div>
+        <button
+          onClick={() => void resetDemo()}
+          disabled={resetting}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+          title="Clear conversations and copilot-created records; restore seed data"
+        >
+          <RotateCcw className={`h-3 w-3 ${resetting ? 'animate-spin' : ''}`} />
+          {resetting ? 'Resetting…' : 'Reset demo data'}
+        </button>
+        <div className="mt-1.5 text-center text-[10px] text-slate-500">Synthetic dataset · no real tenants</div>
       </div>
     </div>
   );
+
+  const propertyName = useCallback(
+    (propertyId: string) => portfolio.find((p) => p.property.id === propertyId)?.property.name ?? '—',
+    [portfolio]
+  );
+  const unitNumber = useCallback(
+    (propertyId: string, unitId: string | null) => {
+      if (!unitId) return null;
+      const entry = portfolio.find((p) => p.property.id === propertyId);
+      return entry?.units.find((u) => u.id === unitId)?.unitNumber ?? null;
+    },
+    [portfolio]
+  );
+  const openRecords = records.filter((r) => !['resolved', 'rejected', 'cancelled'].includes(r.status));
+  const filteredRecords =
+    recordFilter === 'all'
+      ? records
+      : recordFilter === 'open'
+        ? openRecords
+        : records.filter((r) => ['resolved', 'rejected', 'cancelled'].includes(r.status));
 
   const inspector = (
     <div className="flex h-full flex-col bg-white">
       <div className="flex border-b border-slate-200">
         {(
           [
-            { id: 'records', label: `Maintenance (${records.length})`, icon: ClipboardList },
+            { id: 'records', label: `Tickets (${openRecords.length})`, icon: ClipboardList },
+            { id: 'portfolio', label: 'Portfolio', icon: Building2 },
             { id: 'activity', label: 'Activity', icon: Activity },
           ] as const
         ).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setRightTab(tab.id)}
-            className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition ${
+            className={`flex flex-1 items-center justify-center gap-1 px-2 py-2.5 text-[11px] font-bold uppercase tracking-wide transition ${
               rightTab === tab.id
                 ? 'border-b-2 border-letrents-blue text-letrents-navy'
                 : 'text-slate-400 hover:text-slate-600'
@@ -328,42 +408,124 @@ export default function CopilotApp() {
       <div className="panel-scroll min-h-0 flex-1 overflow-y-auto p-3">
         {rightTab === 'records' ? (
           <div className="space-y-2">
-            <AnimatePresence initial={false}>
-              {records.map((r) => (
-                <motion.div
-                  key={r.id}
-                  layout
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm"
+            <div className="flex gap-1.5">
+              {(['all', 'open', 'resolved'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setRecordFilter(f)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold capitalize transition ${
+                    recordFilter === f
+                      ? 'bg-letrents-navy text-white'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-slate-400">{r.reference}</span>
-                    <span
-                      className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ${
-                        r.status === 'resolved'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : r.status === 'rejected'
-                            ? 'bg-red-50 text-red-600'
-                            : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {r.status === 'resolved' ? (
-                        <CheckCircle2 className="h-3 w-3" />
-                      ) : (
-                        <CircleDashed className="h-3 w-3" />
-                      )}
-                      {r.status.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                  <div className="mt-1 font-semibold text-slate-800">{r.title}</div>
-                  <div className="text-slate-500">
-                    {r.category.replace(/_/g, ' ')} · {r.urgency}
-                  </div>
-                </motion.div>
+                  {f}
+                </button>
               ))}
+            </div>
+            <AnimatePresence initial={false}>
+              {filteredRecords.map((r) => {
+                const unit = unitNumber(r.propertyId, r.unitId);
+                return (
+                  <motion.div
+                    key={r.id}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-slate-400">{r.reference}</span>
+                      <span
+                        className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ${
+                          r.status === 'resolved'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : r.status === 'rejected'
+                              ? 'bg-red-50 text-red-600'
+                              : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {r.status === 'resolved' ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <CircleDashed className="h-3 w-3" />
+                        )}
+                        {r.status.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-semibold text-slate-800">{r.title}</div>
+                    <div className="text-slate-500">
+                      {propertyName(r.propertyId)}
+                      {unit ? ` · Unit ${unit}` : ' · common area'}
+                    </div>
+                    <div className="text-slate-400">
+                      {r.category.replace(/_/g, ' ')} · {r.urgency}
+                    </div>
+                  </motion.div>
+                );
+              })}
             </AnimatePresence>
-            {records.length === 0 && <div className="text-xs text-slate-400">No records.</div>}
+            {filteredRecords.length === 0 && (
+              <div className="text-xs text-slate-400">No tickets match this filter.</div>
+            )}
+          </div>
+        ) : rightTab === 'portfolio' ? (
+          <div className="space-y-2">
+            <div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-500">
+              Demo dataset · {portfolio.reduce((n, p) => n + p.totalUnits, 0)} units ·{' '}
+              {portfolio.reduce((n, p) => n + p.units.filter((u) => u.tenant).length, 0)} tenants
+            </div>
+            {portfolio.map((entry) => {
+              const expanded = expandedProperty === entry.property.id;
+              const openCount = entry.pendingMaintenance + entry.inProgressMaintenance;
+              return (
+                <div
+                  key={entry.property.id}
+                  className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                >
+                  <button
+                    onClick={() => setExpandedProperty(expanded ? null : entry.property.id)}
+                    className="flex w-full items-center gap-2 p-2.5 text-left"
+                  >
+                    <Building2 className="h-4 w-4 shrink-0 text-letrents-blue" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-bold text-slate-800">
+                        {entry.property.name}
+                      </div>
+                      <div className="truncate text-[11px] text-slate-500">
+                        {entry.property.landlord} · {entry.occupiedUnits}/{entry.totalUnits} occupied ·{' '}
+                        {openCount} open
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {expanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden border-t border-slate-100"
+                      >
+                        <ul className="divide-y divide-slate-50">
+                          {entry.units.map((u) => (
+                            <li key={u.id} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                              <span className="font-semibold text-slate-700">Unit {u.unitNumber}</span>
+                              <span className="truncate text-slate-500">
+                                {u.tenant ? u.tenant.fullName : <em>vacant</em>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+            {portfolio.length === 0 && <div className="text-xs text-slate-400">No properties.</div>}
           </div>
         ) : (
           <div className="space-y-2">
@@ -552,10 +714,15 @@ export default function CopilotApp() {
                 {!sending && turn.events.length > 0 && <StepTimeline events={turn.events} />}
 
                 {!sending &&
-                  (turn.analysis || turn.approval || turn.safetyGuidance || turn.duplicateOf) && (
+                  (turn.analysis ||
+                    turn.approval ||
+                    turn.safetyGuidance ||
+                    turn.duplicateOf ||
+                    turn.segments.length > 0) && (
                     <TurnCards
                       turn={turn}
                       busyApproval={busyApproval}
+                      imageDataUrl={lastImage}
                       onDecide={(approvalId, decision) => decide(approvalId, decision)}
                     />
                   )}
@@ -596,7 +763,7 @@ export default function CopilotApp() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              <div className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-letrents-blue focus-within:ring-2 focus-within:ring-letrents-blue/20">
+              <div className="relative flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-letrents-blue focus-within:ring-2 focus-within:ring-letrents-blue/20">
                 <input
                   ref={fileRef}
                   type="file"
@@ -611,6 +778,11 @@ export default function CopilotApp() {
                 >
                   <ImagePlus className="h-5 w-5" />
                 </button>
+                <VoiceRecorder
+                  disabled={sending}
+                  onError={(message) => setError(message)}
+                  onTranscribed={(text) => setInput(text)}
+                />
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

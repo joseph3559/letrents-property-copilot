@@ -89,6 +89,18 @@ export class DemoAdapter implements PropertyManagementAdapter {
     return property;
   }
 
+  async listUnits(ctx: UserContext, propertyId: string): Promise<Unit[]> {
+    const property = await this.getProperty(ctx, propertyId);
+    return demoUnits
+      .filter((u) => u.propertyId === property.id && u.orgId === ctx.orgId)
+      .sort((a, b) => a.unitNumber.localeCompare(b.unitNumber));
+  }
+
+  async listTenants(ctx: UserContext, propertyId: string): Promise<Tenant[]> {
+    const property = await this.getProperty(ctx, propertyId);
+    return demoTenants.filter((t) => t.propertyId === property.id && t.orgId === ctx.orgId);
+  }
+
   async getUnit(ctx: UserContext, unitId: string): Promise<Unit> {
     const unit = demoUnits.find((u) => u.id === unitId);
     if (!unit) throw new NotFoundError('Unit not found');
