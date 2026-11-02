@@ -9,12 +9,26 @@ import { UserContext } from '../src/server/types';
 
 const ctx: UserContext = { userId: 'user-demo-manager', orgId: 'org-sunrise-demo', role: 'demo_manager' };
 
+function testConfig() {
+  return {
+    metaApiKey: null,
+    metaBaseUrl: 'https://api.meta.ai/v1',
+    metaModel: 'muse-spark-1.3',
+    metaTimeoutMs: 5000,
+    agentMaxIterations: 8,
+    demoDataDir: '/tmp/copilot-test',
+    demoOrgId: 'org-sunrise-demo',
+    demoUserId: 'user-demo-manager',
+    nodeEnv: 'test',
+  };
+}
+
 function makeAgent() {
   const dir = mkdtempSync(join(tmpdir(), 'copilot-agent-'));
   const store = new DemoStore(dir);
   const adapter = new DemoAdapter(store);
   // primary: null → deterministic local engine for tests.
-  const agent = new CopilotAgent({ store, adapter, primary: null, maxIterations: 8 });
+  const agent = new CopilotAgent({ store, adapter, primary: null, maxIterations: 8, config: testConfig() });
   return { agent, store, adapter };
 }
 
@@ -122,7 +136,7 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'copilot-budget-'));
     const store = new DemoStore(dir);
     const adapter = new DemoAdapter(store);
-    const agent = new CopilotAgent({ store, adapter, primary: null, maxIterations: 1 });
+    const agent = new CopilotAgent({ store, adapter, primary: null, maxIterations: 1, config: testConfig() });
     await expect(
       agent.handleMessage(ctx, 'Leaking pipe in B201, water everywhere.', undefined)
     ).rejects.toThrow(/iteration budget/);

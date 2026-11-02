@@ -17,6 +17,8 @@ import {
 } from './schemas';
 import { assessSafety } from './safety';
 import { createToolRegistry, ToolRegistry } from './tools';
+import { phrasesForCategory, segmentImage, SegmentBox } from '../providers/sam';
+import { CopilotConfig } from '../config';
 import { newId, nowIso } from '../lib/id';
 import {
   ApprovalRequest,
@@ -47,6 +49,7 @@ export interface AgentTurnResult {
   tenantDraft: string | null;
   needsClarification: string | null;
   safetyGuidance: string | null;
+  segments: SegmentBox[];
 }
 
 interface AgentDeps {
@@ -54,6 +57,7 @@ interface AgentDeps {
   adapter: PropertyManagementAdapter;
   primary: AIProvider | null;
   maxIterations: number;
+  config: CopilotConfig;
 }
 
 const EXTRACT_SYSTEM = `[TASK: EXTRACT_COMPLAINT]
@@ -257,6 +261,7 @@ export class CopilotAgent {
       tenantDraft: null,
       needsClarification: null,
       safetyGuidance: null,
+      segments: [],
     };
   }
 
@@ -403,6 +408,29 @@ export class CopilotAgent {
     const recommendations = await this.runTool<StaffRecommendation[]>(ctx, 'recommend_staff', { propertyId: property.id, category: analysis.category });
     events.push(`Staff recommendations prepared: ${recommendations.length}`);
 
+    // SAM 3.1 damage segmentation (best-effort, Meta only, photo attached).
+    let segments: SegmentBox[] = [];
+    if (imageDataUrl && this.deps.primary) {
+      const phrases = phrasesForCategory(analysis.category).slice(0, 2);
+      if (phrases.length > 0) {
+        try {
+          const results = await Promise.all(
+            phrases.map((phrase) => segmentImage(this.deps.config, imageDataUrl, phrase))
+          );
+          segments = results.flatMap((r) => r.boxes).slice(0, 10);
+          events.push(
+            segments.length > 0
+              ? `SAM 3.1 located ${segments.length} damage region(s): ${[...new Set(segments.map((s) => s.phrase))].join(', ')}`
+              : 'SAM 3.1 found no matching damage regions in the photo'
+          );
+        } catch (error) {
+          events.push(
+            `Damage segmentation unavailable (${error instanceof Error ? error.message : 'error'}); continuing without it`
+          );
+        }
+      }
+    }
+
     // Tenant response draft.
     const draft = await runWithFallback((p) =>
       completeJson(
@@ -476,6 +504,7 @@ export class CopilotAgent {
       tenantDraft: draft.message,
       needsClarification: null,
       safetyGuidance: safety.guidance,
+      segments,
     };
   }
 

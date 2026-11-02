@@ -26,7 +26,7 @@ export function loadConfig(): CopilotConfig {
     metaApiKey: readEnv('META_API_KEY') ?? null,
     metaBaseUrl: readEnv('META_API_BASE_URL') ?? 'https://api.meta.ai/v1',
     metaModel: readEnv('META_MODEL') ?? 'muse-spark-1.3',
-    metaTimeoutMs: timeoutRaw ? Number.parseInt(timeoutRaw, 10) || 30000 : 30000,
+    metaTimeoutMs: timeoutRaw ? Number.parseInt(timeoutRaw, 10) || 90000 : 90000,
     agentMaxIterations: iterationsRaw
       ? Math.min(Math.max(Number.parseInt(iterationsRaw, 10) || 8, 1), 20)
       : 8,

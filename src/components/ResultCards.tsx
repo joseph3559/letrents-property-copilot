@@ -31,6 +31,7 @@ import {
   TurnResult,
   UnitView,
 } from './api';
+import SegmentOverlay from './SegmentOverlay';
 
 const cardMotion = {
   initial: { opacity: 0, y: 14 },
@@ -374,10 +375,12 @@ export function TurnCards({
   turn,
   onDecide,
   busyApproval,
+  imageDataUrl,
 }: {
   turn: TurnResult;
   onDecide: (approvalId: string, decision: 'approve' | 'reject') => void;
   busyApproval: string | null;
+  imageDataUrl?: string | null;
 }) {
   let cardIndex = 0;
   return (
@@ -416,6 +419,9 @@ export function TurnCards({
         </motion.div>
       )}
       {turn.analysis && <HistoryCard history={turn.history} index={cardIndex++} />}
+      {turn.segments.length > 0 && imageDataUrl && (
+        <SegmentOverlay imageDataUrl={imageDataUrl} segments={turn.segments} index={cardIndex++} />
+      )}
       {turn.recommendations.length > 0 && (
         <StaffCard recommendations={turn.recommendations} index={cardIndex++} />
       )}

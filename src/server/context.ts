@@ -31,6 +31,7 @@ export function getCopilot() {
       adapter,
       primary,
       maxIterations: config.agentMaxIterations,
+      config,
     });
     cached = {
       agent,
