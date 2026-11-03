@@ -223,6 +223,15 @@ export default function CopilotApp() {
   const [mobileInspector, setMobileInspector] = useState(false);
   const [convoQuery, setConvoQuery] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer to fit its content (single line ↔ max height).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [input]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshSide = useCallback(async (conversationId?: string) => {
@@ -1091,6 +1100,7 @@ export default function CopilotApp() {
                   onTranscribed={(text) => setInput(text)}
                 />
                 <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1099,9 +1109,9 @@ export default function CopilotApp() {
                       send(input);
                     }
                   }}
-                  rows={2}
+                  rows={1}
                   placeholder="Describe a complaint or ask about your properties…"
-                  className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="max-h-32 min-w-0 flex-1 resize-none self-center overflow-y-auto bg-transparent px-1 py-2.5 text-sm leading-5 text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
                 <motion.button
                   whileTap={{ scale: 0.92 }}
