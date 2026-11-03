@@ -49,6 +49,9 @@ import VoiceRecorder from './VoiceRecorder';
 
 const PROMPT_ICONS = [Droplets, MessagesSquare, ShieldAlert, Zap, Camera, BarChart3];
 
+/** Placeholder id for the optimistic sidebar entry while the first reply generates. */
+const PENDING_CONVO_ID = '__pending__';
+
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   if (Number.isNaN(diffMs) || diffMs < 0) return 'just now';
@@ -160,26 +163,88 @@ function ConversationGroups({
   );
 }
 
-function ThinkingIndicator() {
+function SkeletonLines({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="space-y-2" aria-hidden>
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="h-3 rounded-full bg-slate-200 motion-safe:animate-pulse dark:bg-white/10"
+          style={{ width: `${88 - i * 14}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const GENERATING_STEPS = [
+  'Understanding your message',
+  'Pulling property records',
+  'Analyzing with Meta AI',
+  'Preparing your response',
+];
+
+function PendingEchoView({ echo }: { echo: { text: string; image?: string } }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col items-end gap-1.5"
+    >
+      {echo.image && (
+        <span className="overflow-hidden rounded-xl border border-slate-200/80 shadow-sm dark:border-white/15">
+          <img src={echo.image} alt="Attached maintenance photo" className="h-20 w-20 object-cover" />
+        </span>
+      )}
+      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-letrents-navy px-4 py-2.5 text-sm leading-relaxed text-white shadow dark:bg-letrents-blue">
+        {echo.text}
+      </div>
+    </motion.div>
+  );
+}
+
+function GeneratingIndicator({ hasImage }: { hasImage: boolean }) {
+  const [step, setStep] = useState(0);
+  const steps = hasImage
+    ? ['Understanding your message', 'Inspecting the photo with Meta AI', 'Analyzing with Meta AI', 'Preparing your response']
+    : GENERATING_STEPS;
+  useEffect(() => {
+    if (step >= steps.length - 1) return;
+    const timer = setTimeout(() => setStep((s) => Math.min(s + 1, steps.length - 1)), 3500);
+    return () => clearTimeout(timer);
+  }, [step, steps.length]);
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
+      className="space-y-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
     >
-      <span className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            className="h-2 w-2 rounded-full bg-letrents-blue"
-            animate={{ y: [0, -5, 0], opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
-          />
+      <div className="space-y-1.5">
+        {steps.map((label, i) => (
+          <div key={label} className="flex items-center gap-2 text-[13px]">
+            {i < step ? (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            ) : i === step ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-letrents-blue" />
+            ) : (
+              <CircleDashed className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" />
+            )}
+            <span
+              className={
+                i <= step
+                  ? 'font-semibold text-slate-700 dark:text-slate-200'
+                  : 'text-slate-400 dark:text-slate-500'
+              }
+            >
+              {label}
+              {i === step ? '…' : ''}
+            </span>
+          </div>
         ))}
-      </span>
-      <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
-        Copilot is analyzing records and preparing actions…
-      </span>
+      </div>
+      <div className="border-t border-slate-100 pt-3 dark:border-white/5">
+        <SkeletonLines lines={2} />
+      </div>
     </motion.div>
   );
 }
@@ -216,6 +281,8 @@ export default function CopilotApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, [lightbox]);
   const [sending, setSending] = useState(false);
+  const [pendingEcho, setPendingEcho] = useState<{ text: string; image?: string } | null>(null);
+  const [booted, setBooted] = useState(false);
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
@@ -250,6 +317,8 @@ export default function CopilotApp() {
       setPortfolio(port);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh');
+    } finally {
+      setBooted(true);
     }
   }, []);
 
@@ -259,7 +328,7 @@ export default function CopilotApp() {
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
-  }, [turn, sending]);
+  }, [turn, sending, pendingEcho]);
 
   const openConversation = useCallback(
     async (id: string) => {
@@ -306,10 +375,30 @@ export default function CopilotApp() {
     async (text: string, attachedImage?: string) => {
       const content = text.trim();
       if (!content || sending) return;
+      const outgoingImage = attachedImage ?? imageDataUrl;
+      // Optimistic echo: the message appears instantly, long before Meta responds.
       setSending(true);
       setError(null);
       setMobileNav(false);
-      const outgoingImage = attachedImage ?? imageDataUrl;
+      setPendingEcho({ text: content, image: outgoingImage });
+      setInput('');
+      setImageName(null);
+      setImageDataUrl(undefined);
+      if (!activeId) {
+        setConversations((prev) =>
+          prev.some((c) => c.id === PENDING_CONVO_ID)
+            ? prev
+            : [
+                {
+                  id: PENDING_CONVO_ID,
+                  title: content.slice(0, 60),
+                  updatedAt: new Date().toISOString(),
+                  messageCount: 1,
+                },
+                ...prev,
+              ]
+        );
+      }
       try {
         const result = await api.send(content, activeId, outgoingImage);
         setTurn(result);
@@ -324,13 +413,12 @@ export default function CopilotApp() {
           }
         }
         setActiveId(result.conversation.id);
-        setInput('');
-        setImageName(null);
-        setImageDataUrl(undefined);
         await refreshSide(result.conversation.id);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to send message');
+        setConversations((prev) => prev.filter((c) => c.id !== PENDING_CONVO_ID));
       } finally {
+        setPendingEcho(null);
         setSending(false);
       }
     },
@@ -532,12 +620,28 @@ export default function CopilotApp() {
         </span>
       </div>
       <div className="panel-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-        <ConversationGroups
-          conversations={conversations}
-          query={convoQuery}
-          activeId={activeId}
-          onOpen={(id) => void openConversation(id)}
-        />
+        {!booted ? (
+          <div className="space-y-2 px-1 pt-1" aria-hidden>
+            {[88, 72, 80].map((w, i) => (
+              <div key={i} className="space-y-1.5">
+                <div
+                  className="h-3 rounded-full bg-slate-900/10 motion-safe:animate-pulse dark:bg-white/10"
+                  style={{ width: `${w}%` }}
+                />
+                <div className="h-2 w-1/2 rounded-full bg-slate-900/5 motion-safe:animate-pulse dark:bg-white/5" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ConversationGroups
+            conversations={conversations}
+            query={convoQuery}
+            activeId={activeId}
+            onOpen={(id) => {
+              if (id !== PENDING_CONVO_ID) void openConversation(id);
+            }}
+          />
+        )}
       </div>
       <div className="border-t border-slate-200/80 px-3 py-3 dark:border-white/10">
         <div className="flex items-center gap-2.5 rounded-lg bg-white px-2.5 py-2 shadow-sm dark:bg-white/5 dark:shadow-none">
@@ -729,7 +833,19 @@ export default function CopilotApp() {
                 );
               })}
             </AnimatePresence>
-            {filteredRecords.length === 0 && (
+            {!booted && filteredRecords.length === 0 && (
+              <div className="space-y-2" aria-hidden>
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-letrents-nightcard"
+                  >
+                    <SkeletonLines lines={2} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {booted && filteredRecords.length === 0 && (
               <div className="text-xs text-slate-400 dark:text-slate-500">
                 {ticketNeedle ? `No tickets match “${ticketQuery.trim()}”.` : 'No tickets match this filter.'}
               </div>
@@ -973,6 +1089,13 @@ export default function CopilotApp() {
               </motion.div>
             )}
 
+            {sending && !turn && pendingEcho && (
+              <div className="mx-auto max-w-3xl space-y-4">
+                <PendingEchoView echo={pendingEcho} />
+                <GeneratingIndicator hasImage={Boolean(pendingEcho.image)} />
+              </div>
+            )}
+
             {turn && (
               <div className="mx-auto max-w-3xl space-y-4">
                 <AnimatePresence initial={false}>
@@ -1018,7 +1141,11 @@ export default function CopilotApp() {
                   )}
                 </AnimatePresence>
 
-                {sending && <ThinkingIndicator />}
+                {sending && pendingEcho && <PendingEchoView echo={pendingEcho} />}
+
+                {sending && (
+                  <GeneratingIndicator hasImage={Boolean(pendingEcho?.image ?? lastImage)} />
+                )}
 
                 {!sending && turn.events.length > 0 && <StepTimeline events={turn.events} />}
 

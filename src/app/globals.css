@@ -64,3 +64,11 @@ body {
     animation: none;
   }
 }
+
+/* During a theme flip, kill all transitions so every surface changes in one
+   frame instead of staggering. Toggled briefly by ThemeToggle. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
