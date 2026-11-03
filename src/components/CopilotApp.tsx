@@ -41,6 +41,7 @@ import {
   TurnResult,
 } from './api';
 import { ApprovalCard, TurnCards } from './ResultCards';
+import { ConfirmDialog } from './ConfirmDialog';
 import StepTimeline from './StepTimeline';
 import ThemeToggle from './ThemeToggle';
 import Typewriter from './Typewriter';
@@ -197,6 +198,7 @@ export default function CopilotApp() {
   const [ticketQuery, setTicketQuery] = useState('');
   const [expandedProperty, setExpandedProperty] = useState<string | null>('prop-sunrise');
   const [resetting, setResetting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [input, setInput] = useState('');
   const [imageName, setImageName] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
@@ -417,9 +419,7 @@ export default function CopilotApp() {
   }, []);
 
   const resetDemo = useCallback(async () => {
-    if (!window.confirm('Reset the demo? This clears all conversations and copilot-created records.')) {
-      return;
-    }
+    setConfirmReset(false);
     setResetting(true);
     setError(null);
     try {
@@ -561,7 +561,7 @@ export default function CopilotApp() {
           </span>
         </div>
         <button
-          onClick={() => void resetDemo()}
+          onClick={() => setConfirmReset(true)}
           disabled={resetting}
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 dark:border-white/10 dark:bg-transparent dark:text-slate-300 dark:shadow-none dark:hover:bg-white/5 dark:hover:text-white"
           title="Clear conversations and copilot-created records; restore seed data"
@@ -1183,6 +1183,28 @@ export default function CopilotApp() {
           </>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="Reset the demo?"
+        description="This clears every conversation and copilot-created record, and restores the original seed data. This cannot be undone."
+        confirmLabel="Reset everything"
+        tone="danger"
+        busy={resetting}
+        onConfirm={() => void resetDemo()}
+        onClose={() => setConfirmReset(false)}
+      >
+        <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-3.5 py-3 text-[13px] leading-relaxed text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+          <div className="flex items-center justify-between">
+            <span>Conversations to clear</span>
+            <span className="font-bold text-slate-800 dark:text-slate-100">{conversations.length}</span>
+          </div>
+          <div className="mt-1 flex items-center justify-between">
+            <span>Open tickets right now</span>
+            <span className="font-bold text-slate-800 dark:text-slate-100">{openRecords.length}</span>
+          </div>
+        </div>
+      </ConfirmDialog>
 
       <AnimatePresence>
         {lightbox && (
