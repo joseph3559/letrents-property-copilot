@@ -8,6 +8,7 @@ import {
   Camera,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleDashed,
   ClipboardList,
   Droplets,
@@ -64,6 +65,22 @@ function isToday(iso: string): boolean {
   const now = new Date();
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
+
+const ticketStatusStyle: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+  in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
+  approved: 'bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-300',
+  resolved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  rejected: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  cancelled: 'bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-slate-400',
+};
+
+const ticketUrgencyStyle: Record<string, string> = {
+  emergency: 'bg-red-600 text-white dark:bg-red-500',
+  high: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+  normal: 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300',
+  low: 'bg-slate-100 text-slate-500 dark:bg-white/10 dark:text-slate-400',
+};
 
 function ConversationGroups({
   conversations,
@@ -176,6 +193,7 @@ export default function CopilotApp() {
   const [portfolio, setPortfolio] = useState<PortfolioEntry[]>([]);
   const [rightTab, setRightTab] = useState<'records' | 'portfolio' | 'activity'>('records');
   const [recordFilter, setRecordFilter] = useState<'all' | 'open' | 'resolved'>('all');
+  const [ticketQuery, setTicketQuery] = useState('');
   const [expandedProperty, setExpandedProperty] = useState<string | null>('prop-sunrise');
   const [resetting, setResetting] = useState(false);
   const [input, setInput] = useState('');
@@ -556,12 +574,22 @@ export default function CopilotApp() {
     [portfolio]
   );
   const openRecords = records.filter((r) => !['resolved', 'rejected', 'cancelled'].includes(r.status));
-  const filteredRecords =
-    recordFilter === 'all'
-      ? records
-      : recordFilter === 'open'
-        ? openRecords
-        : records.filter((r) => ['resolved', 'rejected', 'cancelled'].includes(r.status));
+  const resolvedRecords = records.filter((r) => ['resolved', 'rejected', 'cancelled'].includes(r.status));
+  const recordCounts = { all: records.length, open: openRecords.length, resolved: resolvedRecords.length };
+  const urgencyRank: Record<string, number> = { emergency: 0, high: 1, normal: 2, low: 3 };
+  const ticketNeedle = ticketQuery.trim().toLowerCase();
+  const filteredRecords = (recordFilter === 'all' ? records : recordFilter === 'open' ? openRecords : resolvedRecords)
+    .filter((r) => {
+      if (!ticketNeedle) return true;
+      const haystack =
+        `${r.reference} ${r.title} ${r.category} ${propertyName(r.propertyId)} ${unitNumber(r.propertyId, r.unitId) ?? ''}`.toLowerCase();
+      return haystack.includes(ticketNeedle);
+    })
+    .sort(
+      (a, b) =>
+        (urgencyRank[a.urgency] ?? 9) - (urgencyRank[b.urgency] ?? 9) ||
+        a.reference.localeCompare(b.reference)
+    );
 
   const inspector = (
     <div className="flex h-full flex-col bg-white dark:bg-letrents-night">
@@ -590,6 +618,24 @@ export default function CopilotApp() {
       <div className="panel-scroll min-h-0 flex-1 overflow-y-auto p-3">
         {rightTab === 'records' ? (
           <div className="space-y-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                value={ticketQuery}
+                onChange={(e) => setTicketQuery(e.target.value)}
+                placeholder="Search tickets…"
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-7 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-letrents-blue focus:ring-2 focus:ring-letrents-blue/20 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+              />
+              {ticketQuery && (
+                <button
+                  onClick={() => setTicketQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
             <div className="flex gap-1.5">
               {(['all', 'open', 'resolved'] as const).map((f) => (
                 <button
@@ -601,34 +647,40 @@ export default function CopilotApp() {
                       : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15'
                   }`}
                 >
-                  {f}
+                  {f} · {recordCounts[f]}
                 </button>
               ))}
             </div>
             <AnimatePresence initial={false}>
               {filteredRecords.map((r) => {
                 const unit = unitNumber(r.propertyId, r.unitId);
+                const closed = ['resolved', 'rejected', 'cancelled'].includes(r.status);
                 return (
-                  <motion.div
+                  <motion.button
                     key={r.id}
                     layout
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
+                    whileTap={{ scale: 0.99 }}
+                    onClick={() => void send(r.reference)}
+                    title={`Ask Copilot about ${r.reference}`}
+                    className={`w-full rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs shadow-sm transition hover:border-letrents-blue/40 hover:shadow dark:border-white/10 dark:bg-letrents-nightcard dark:hover:border-letrents-blue/50 ${
+                      closed ? 'opacity-60' : ''
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-slate-400 dark:text-slate-500">{r.reference}</span>
                       <span
                         className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ${
-                          r.status === 'resolved'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : r.status === 'rejected'
-                              ? 'bg-red-50 text-red-600'
-                              : 'bg-slate-100 text-slate-600'
+                          ticketStatusStyle[r.status] ?? 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300'
                         }`}
                       >
-                        {r.status === 'resolved' ? (
+                        {r.status === 'resolved' || r.status === 'approved' ? (
                           <CheckCircle2 className="h-3 w-3" />
+                        ) : r.status === 'in_progress' ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : r.status === 'rejected' || r.status === 'cancelled' ? (
+                          <X className="h-3 w-3" />
                         ) : (
                           <CircleDashed className="h-3 w-3" />
                         )}
@@ -638,17 +690,26 @@ export default function CopilotApp() {
                     <div className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{r.title}</div>
                     <div className="text-slate-500 dark:text-slate-300">
                       {propertyName(r.propertyId)}
-                      {unit ? ` · Unit ${unit}` : ' · common area'}
+                      {unit ? ` · Unit ${unit}` : ' · common area'} · {r.category.replace(/_/g, ' ')}
                     </div>
-                    <div className="text-slate-400 dark:text-slate-500">
-                      {r.category.replace(/_/g, ' ')} · {r.urgency}
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          ticketUrgencyStyle[r.urgency] ?? 'bg-slate-100 text-slate-500 dark:bg-white/10 dark:text-slate-400'
+                        }`}
+                      >
+                        {r.urgency}
+                      </span>
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
                     </div>
-                  </motion.div>
+                  </motion.button>
                 );
               })}
             </AnimatePresence>
             {filteredRecords.length === 0 && (
-              <div className="text-xs text-slate-400 dark:text-slate-500">No tickets match this filter.</div>
+              <div className="text-xs text-slate-400 dark:text-slate-500">
+                {ticketNeedle ? `No tickets match “${ticketQuery.trim()}”.` : 'No tickets match this filter.'}
+              </div>
             )}
           </div>
         ) : rightTab === 'portfolio' ? (
