@@ -29,7 +29,7 @@ const FILE_NAMES: Record<keyof DemoDatabase, string> = {
   referenceCounter: 'counter.json',
 };
 
-function defaultDatabase(): DemoDatabase {
+export function defaultDatabase(): DemoDatabase {
   return {
     conversations: [],
     maintenanceRequests: structuredClone(demoMaintenanceSeed),
@@ -55,7 +55,14 @@ async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.rename(tmpPath, filePath);
 }
 
-export class DemoStore {
+/** Storage contract shared by the file-backed and KV-backed demo stores. */
+export interface DemoStoreLike {
+  load(): Promise<DemoDatabase>;
+  update<T>(mutator: (db: DemoDatabase) => T): Promise<T>;
+  reset(): Promise<void>;
+}
+
+export class DemoStore implements DemoStoreLike {
   private dataDir: string;
   private cache: DemoDatabase | null = null;
   private writeChain: Promise<void> = Promise.resolve();
@@ -139,10 +146,22 @@ export class DemoStore {
   }
 }
 
-let sharedStore: DemoStore | null = null;
+let sharedStore: DemoStoreLike | null = null;
 let sharedDataDir: string | null = null;
+let sharedKvStore: DemoStoreLike | null = null;
 
-export function getStore(dataDir: string): DemoStore {
+export function getStore(dataDir: string): DemoStoreLike {
+  // Vercel KV env vars are auto-injected when a KV database is connected in
+  // the dashboard. Shared state across instances; files stay for local dev.
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    if (!sharedKvStore) {
+      // Lazy import: kv-store pulls @vercel/kv, only needed with KV configured.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { KvStore } = require('./kv-store') as typeof import('./kv-store');
+      sharedKvStore = new KvStore();
+    }
+    return sharedKvStore;
+  }
   if (!sharedStore || sharedDataDir !== dataDir) {
     sharedStore = new DemoStore(dataDir);
     sharedDataDir = dataDir;

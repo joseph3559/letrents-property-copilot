@@ -4,7 +4,7 @@
 // Tool-call iterations are bounded by AGENT_MAX_ITERATIONS.
 
 import { z } from 'zod';
-import { DemoStore } from '../store';
+import { DemoStoreLike } from '../store';
 import { AIProvider, ProviderError } from '../providers/types';
 import { LocalProvider } from '../providers/local';
 import { PropertyManagementAdapter, NotFoundError } from '../adapters/types';
@@ -60,7 +60,7 @@ export interface AgentTurnResult {
 }
 
 interface AgentDeps {
-  store: DemoStore;
+  store: DemoStoreLike;
   adapter: PropertyManagementAdapter;
   primary: AIProvider | null;
   maxIterations: number;

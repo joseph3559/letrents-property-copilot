@@ -65,11 +65,17 @@ said. Tests in `tests/safety.test.ts` pin this behavior.
 ## Persistence
 
 - Conversations, maintenance requests, approvals, audit events, and the
-  reference counter live in small JSON files (atomic tmp-write + rename,
-  serialized write chain).
-- On serverless hosts (Vercel) the store uses the OS temp dir per instance and
-  degrades to memory-only mode if the disk is read-only — requests never fail
-  on storage.
+  reference counter live behind a tiny store interface
+  (`load`/`update`/`reset`), with two backends:
+  - `DemoStore`: small JSON files (atomic tmp-write + rename, serialized
+    write chain). Local development default.
+  - `KvStore`: Vercel KV (Redis), one key per collection, no local cache so
+    every serverless instance sees one shared truth. Selected automatically
+    when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set (Vercel injects them
+    when a KV database is connected in the dashboard).
+- Without KV on a read-only serverless filesystem, the file store degrades to
+  memory-only mode instead of crashing — but state stays per-instance, so
+  production must connect KV to avoid cross-request 404s.
 - Photos are never persisted: attached images live in request scope plus a
   bounded in-memory cache (10 entries) so clarification follow-ups keep
   vision context.

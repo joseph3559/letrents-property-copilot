@@ -8,7 +8,7 @@ import {
   demoTenants,
   demoUnits,
 } from '../demo-data';
-import { DemoStore } from '../store';
+import { DemoStoreLike } from '../store';
 import { newId, nowIso } from '../lib/id';
 import {
   MaintenanceCategory,
@@ -58,7 +58,7 @@ function normalizeUnitNumber(raw: string): string {
 }
 
 export class DemoAdapter implements PropertyManagementAdapter {
-  constructor(private readonly store: DemoStore) {}
+  constructor(private readonly store: DemoStoreLike) {}
 
   private assertOrg(ctx: UserContext, recordOrgId: string): void {
     if (ctx.orgId !== recordOrgId) {

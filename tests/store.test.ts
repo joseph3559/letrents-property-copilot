@@ -3,7 +3,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DemoStore } from '../src/server/store';
+import { KvStore, KvClient } from '../src/server/kv-store';
 import { loadConfig } from '../src/server/config';
+
+function fakeKvClient(): KvClient & { size: () => number } {
+  const map = new Map<string, unknown>();
+  return {
+    get: async <T>(key: string): Promise<T | null> =>
+      (map.has(key) ? (map.get(key) as T) : null),
+    set: async (key: string, value: unknown): Promise<string> => {
+      map.set(key, value);
+      return 'OK';
+    },
+    size: () => map.size,
+  };
+}
 
 describe('DemoStore', () => {
   it('persists records to disk when the directory is writable', async () => {
@@ -52,6 +66,63 @@ describe('DemoStore', () => {
     expect(id).toBe('convo-mem');
     const again = await store.load();
     expect(again.conversations.some((c) => c.id === 'convo-mem')).toBe(true);
+  });
+});
+
+describe('KvStore', () => {
+  it('seeds defaults on first load and round-trips mutations', async () => {
+    const store = new KvStore(fakeKvClient());
+    const db = await store.load();
+    expect(db.maintenanceRequests.length).toBeGreaterThan(0);
+    expect(db.conversations).toEqual([]);
+    await store.update((inner) => {
+      inner.conversations.push({
+        id: 'convo-kv',
+        orgId: 'org-test',
+        userId: 'user-test',
+        title: 'kv test',
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+    const again = await store.load();
+    expect(again.conversations.some((c) => c.id === 'convo-kv')).toBe(true);
+  });
+
+  it('shares state across instances over the same client', async () => {
+    const client = fakeKvClient();
+    const a = new KvStore(client);
+    const b = new KvStore(client);
+    await a.update((db) => {
+      db.referenceCounter = 1234;
+    });
+    const fromB = await b.load();
+    expect(fromB.referenceCounter).toBe(1234);
+  });
+
+  it('reset restores seed state', async () => {
+    const store = new KvStore(fakeKvClient());
+    await store.update((db) => {
+      db.approvals.push({
+        id: 'apr-x',
+        orgId: 'org-test',
+        conversationId: 'convo-kv',
+        type: 'maintenance_request',
+        status: 'pending',
+        title: 't',
+        summary: 's',
+        payload: {},
+        decidedBy: null,
+        decidedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+    await store.reset();
+    const db = await store.load();
+    expect(db.approvals).toEqual([]);
+    expect(db.conversations).toEqual([]);
   });
 });
 
