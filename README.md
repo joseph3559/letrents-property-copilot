@@ -30,6 +30,28 @@ operations through authorized tools:
 5. **Approve** — a human reviews and approves/rejects; only then is the record
    persisted and audited.
 
+## Screenshots
+
+Live at [copilot.letrents.com](https://copilot.letrents.com).
+
+![Complaint analysis with agent trail](demo/screenshots/01-complaint-analysis.png)
+*Plumbing complaint analyzed: records resolved, urgency assessed, agent trail visible.*
+
+![Staff, tenant draft, and pending approval](demo/screenshots/02-approval-pending.png)
+*Staff recommendations, tenant reply draft, and the approval card awaiting a human decision.*
+
+![Approval confirmation dialog](demo/screenshots/03-approval-dialog.png)
+*Approving opens a confirmation dialog: tenant-notification switch, review checkbox, audit note.*
+
+![Morning briefing in dark mode](demo/screenshots/04-briefing-dark.png)
+*Portfolio briefing with triaged tickets and urgency badges, dark theme.*
+
+![Photo complaint with clarification](demo/screenshots/05-photo-complaint.png)
+*A ceiling-leak photo analyzed as a plumbing emergency, with one-tap property options.*
+
+![Scoped property briefing](demo/screenshots/06-briefing-scoped.png)
+*Briefing scoped to one property, with the triage-ordered ticket panel.*
+
 ## Features (implemented)
 
 - Copilot chat workspace with conversation history
@@ -39,7 +61,7 @@ operations through authorized tools:
 - Maintenance request creation through validated, authorized tools
 - Staff recommendation ranked by skill match and availability
 - Tenant reply drafting (draft only — sending requires approval)
-- Human approval workflow (approve/reject with two-step confirm)
+- Human approval workflow (approve/reject with confirmation dialogs, review checklist, and audit notes)
 - Property intelligence questions grounded in real records
 - Audit/activity history for every action
 - Optional maintenance photo upload (sent to Meta vision when configured)
