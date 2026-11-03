@@ -182,6 +182,18 @@ export default function CopilotApp() {
   const [imageName, setImageName] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
   const [lastImage, setLastImage] = useState<string | null>(null);
+  // Session-only: user-message id → attached photo. Never persisted (keeps the JSON store lean).
+  const [messageImages, setMessageImages] = useState<Record<string, string>>({});
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
   const [sending, setSending] = useState(false);
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -271,6 +283,12 @@ export default function CopilotApp() {
         setTurn(result);
         setFreshTurn(true);
         setLastImage(outgoingImage ?? null);
+        if (outgoingImage) {
+          const lastUser = [...result.conversation.messages].reverse().find((m) => m.role === 'user');
+          if (lastUser) {
+            setMessageImages((prev) => ({ ...prev, [lastUser.id]: outgoingImage }));
+          }
+        }
         setActiveId(result.conversation.id);
         setInput('');
         setImageName(null);
@@ -366,6 +384,8 @@ export default function CopilotApp() {
     setTurn(null);
     setFreshTurn(false);
     setLastImage(null);
+    setMessageImages({});
+    setLightbox(null);
     setInput('');
     setImageName(null);
     setImageDataUrl(undefined);
@@ -385,6 +405,8 @@ export default function CopilotApp() {
       setTurn(null);
       setFreshTurn(false);
       setLastImage(null);
+      setMessageImages({});
+      setLightbox(null);
       await refreshSide(undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Reset failed');
@@ -858,8 +880,21 @@ export default function CopilotApp() {
                         key={m.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="flex justify-end"
+                        className="flex flex-col items-end gap-1.5"
                       >
+                        {messageImages[m.id] && (
+                          <button
+                            onClick={() => setLightbox(messageImages[m.id])}
+                            title="View attached photo"
+                            className="overflow-hidden rounded-xl border border-slate-200/80 shadow-sm transition hover:opacity-90 dark:border-white/15"
+                          >
+                            <img
+                              src={messageImages[m.id]}
+                              alt="Attached maintenance photo"
+                              className="h-20 w-20 object-cover"
+                            />
+                          </button>
+                        )}
                         <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-letrents-navy px-4 py-2.5 text-sm leading-relaxed text-white shadow dark:bg-letrents-blue">
                           {m.content}
                         </div>
@@ -914,18 +949,24 @@ export default function CopilotApp() {
           <div className="border-t border-slate-200/80 bg-white/90 px-3 py-3 backdrop-blur dark:border-white/10 dark:bg-letrents-night/90">
             <div className="mx-auto max-w-3xl">
               <AnimatePresence>
-                {imageName && (
+                {imageName && imageDataUrl && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="mb-2 flex items-center justify-between overflow-hidden rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600"
+                    className="mb-2 flex items-center gap-2.5 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50 px-2.5 py-2 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <ImagePlus className="h-3.5 w-3.5" /> {imageName}
+                    <img
+                      src={imageDataUrl}
+                      alt="Photo to attach"
+                      className="h-10 w-10 shrink-0 rounded-lg border border-slate-200/80 object-cover dark:border-white/15"
+                    />
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <ImagePlus className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{imageName}</span>
                     </span>
                     <button
-                      className="font-semibold underline"
+                      className="shrink-0 font-semibold underline"
                       onClick={() => {
                         setImageName(null);
                         setImageDataUrl(undefined);
@@ -1047,6 +1088,37 @@ export default function CopilotApp() {
               {inspector}
             </motion.aside>
           </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {lightbox && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setLightbox(null)}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-letrents-navy/70 p-6 backdrop-blur-sm"
+          >
+            <motion.img
+              initial={{ scale: 0.94 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              src={lightbox}
+              alt="Attached maintenance photo, full size"
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-[85vh] max-w-[90vw] rounded-2xl border border-white/20 object-contain shadow-2xl"
+            />
+            <button
+              onClick={() => setLightbox(null)}
+              aria-label="Close photo viewer"
+              className="absolute right-4 top-4 rounded-lg bg-white/10 p-2 text-white transition hover:bg-white/20"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
