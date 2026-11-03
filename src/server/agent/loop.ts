@@ -26,6 +26,7 @@ import {
   Conversation,
   MaintenanceRequest,
   Property,
+  StaffMember,
   Tenant,
   Unit,
   UserContext,
@@ -108,6 +109,22 @@ async function completeJson<T>(
   });
   const raw = extractJsonObject(result.text);
   return schema.parse(raw);
+}
+
+const QUESTION_UNIT_PATTERNS = [
+  /\bunit\s+([a-z]?\d{1,3}[a-z]?)\b/i,
+  /\bapartment\s+([a-z]?\d{1,3}[a-z]?)\b/i,
+  /\bflat\s+([a-z]?\d{1,3}[a-z]?)\b/i,
+  /\b([a-z]\d{1,4}[a-z]?)\b/i,
+];
+
+/** Best-effort unit mention for drill-down questions (never throws). */
+function extractUnitMention(text: string): string | null {
+  for (const pattern of QUESTION_UNIT_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].toUpperCase();
+  }
+  return null;
 }
 
 export class CopilotAgent {
@@ -517,6 +534,133 @@ export class CopilotAgent {
     events: string[],
     getEngineState: () => { engine: 'meta' | 'local'; model: string }
   ): Promise<AgentTurnResult> {
+    // 1. Reference drill-down: "MNT-1005", "status of MNT-1002?"
+    const refMatch = content.match(/\bMNT-(\d{1,6})\b/i);
+    if (refMatch) {
+      return await this.answerReference(ctx, conversation, refMatch[0].toUpperCase(), events, getEngineState);
+    }
+
+    // 2. Unit drill-down: "unit B201", "what is happening in C301?"
+    const unitMention = extractUnitMention(content);
+    if (unitMention) {
+      const located = await this.locateUnit(ctx, unitMention);
+      if (located) {
+        return await this.answerUnit(ctx, conversation, located.property, located.unit, events, getEngineState);
+      }
+      const text = `I could not find unit "${unitMention}" in your properties. Check the unit number, or ask for a briefing to see everything open.`;
+      const updated = await this.appendAssistant(conversation.id, text);
+      const stated = getEngineState();
+      return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+    }
+
+    // 3. Portfolio briefing.
+    return await this.answerBriefing(ctx, conversation, content, events, getEngineState);
+  }
+
+  private async answerReference(
+    ctx: UserContext,
+    conversation: Conversation,
+    reference: string,
+    events: string[],
+    getEngineState: () => { engine: 'meta' | 'local'; model: string }
+  ): Promise<AgentTurnResult> {
+    const stated = getEngineState();
+    let record: MaintenanceRequest;
+    try {
+      record = await this.runTool<MaintenanceRequest>(ctx, 'get_maintenance_by_reference', { reference });
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        const text = `I could not find ${reference} in your records. Check the reference, or ask for a briefing to see everything open.`;
+        const updated = await this.appendAssistant(conversation.id, text);
+        return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+      }
+      throw error;
+    }
+    const property = await this.runTool<Property>(ctx, 'get_property_details', { propertyId: record.propertyId });
+    const unit = record.unitId
+      ? await this.runTool<Unit>(ctx, 'get_unit_details', { unitId: record.unitId })
+      : null;
+    const tenant = unit ? await this.runTool<Tenant | null>(ctx, 'get_tenant_details', { unitId: unit.id }) : null;
+    const staff = record.assignedTo
+      ? await this.runTool<StaffMember | null>(ctx, 'get_staff_member', { staffId: record.assignedTo }).catch(() => null)
+      : null;
+    events.push(`Record retrieved: ${record.reference}`);
+
+    const lines = [
+      `${record.reference} — ${record.title}`,
+      `Status: ${record.status.replace(/_/g, ' ')} · ${record.category.replace(/_/g, ' ')} · ${record.urgency} urgency`,
+      `Location: ${property.name}${unit ? ` · Unit ${unit.unitNumber}` : ' · common area'}${tenant ? ` (${tenant.fullName})` : ''}`,
+      `Assigned: ${staff ? `${staff.fullName} (${staff.role})` : 'unassigned'}`,
+      `Reported: ${new Date(record.createdAt).toLocaleDateString()}`,
+      '',
+      `“${record.description}”`,
+      '',
+      'Paste another reference or unit to drill in, or ask for a briefing.',
+    ];
+    const text = lines.join('\n');
+    const updated = await this.appendAssistant(conversation.id, text);
+    await this.audit(ctx, conversation.id, 'question.record_lookup', `Looked up ${record.reference}`);
+    return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+  }
+
+  private async locateUnit(
+    ctx: UserContext,
+    unitMention: string
+  ): Promise<{ property: Property; unit: Unit } | null> {
+    const properties = await this.runTool<Property[]>(ctx, 'search_properties', { query: '' });
+    for (const property of properties) {
+      const units = await this.runTool<Unit[]>(ctx, 'find_units', {
+        propertyId: property.id,
+        unitNumberQuery: unitMention,
+      });
+      if (units.length === 1) return { property, unit: units[0] };
+    }
+    return null;
+  }
+
+  private async answerUnit(
+    ctx: UserContext,
+    conversation: Conversation,
+    property: Property,
+    unit: Unit,
+    events: string[],
+    getEngineState: () => { engine: 'meta' | 'local'; model: string }
+  ): Promise<AgentTurnResult> {
+    const stated = getEngineState();
+    const tenant = await this.runTool<Tenant | null>(ctx, 'get_tenant_details', { unitId: unit.id });
+    const history = await this.runTool<MaintenanceRequest[]>(ctx, 'get_maintenance_history', {
+      propertyId: property.id,
+      unitId: unit.id,
+      limit: 10,
+    });
+    const open = history.filter((r) => !['resolved', 'rejected', 'cancelled'].includes(r.status));
+    const closed = history.filter((r) => ['resolved', 'rejected', 'cancelled'].includes(r.status));
+    events.push(`Unit retrieved: ${unit.unitNumber} (${open.length} open, ${closed.length} closed)`);
+
+    const lines = [
+      `Unit ${unit.unitNumber} · ${property.name}${tenant ? ` — ${tenant.fullName}` : ' — vacant'}`,
+      '',
+      open.length > 0
+        ? `Open items (${open.length}):\n${open.map((r) => `• ${r.reference} — ${r.title} · ${r.urgency} · ${r.status.replace(/_/g, ' ')}`).join('\n')}`
+        : 'No open items for this unit.',
+    ];
+    if (closed.length > 0) {
+      lines.push('', `Recently closed (${closed.length}):\n${closed.slice(0, 3).map((r) => `• ${r.reference} — ${r.title}`).join('\n')}`);
+    }
+    lines.push('', 'Paste a reference (e.g. MNT-1002) for full details.');
+    const text = lines.join('\n');
+    const updated = await this.appendAssistant(conversation.id, text);
+    await this.audit(ctx, conversation.id, 'question.unit_lookup', `Looked up unit ${unit.unitNumber}`);
+    return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+  }
+
+  private async answerBriefing(
+    ctx: UserContext,
+    conversation: Conversation,
+    content: string,
+    events: string[],
+    getEngineState: () => { engine: 'meta' | 'local'; model: string }
+  ): Promise<AgentTurnResult> {
     const stated = getEngineState();
     const lower = content.toLowerCase();
     const properties = await this.runTool<Property[]>(ctx, 'search_properties', { query: '' });
@@ -525,26 +669,54 @@ export class CopilotAgent {
     const mentioned = properties.filter((p) => lower.includes(p.name.toLowerCase().split(' ')[0]));
     if (mentioned.length === 1) scoped = mentioned;
 
+    const rank: Record<string, number> = { emergency: 0, high: 1, normal: 2, low: 3 };
     const sections: string[] = [];
     let totalOpen = 0;
+    let emergencies = 0;
+    let highs = 0;
     for (const property of scoped) {
       const pending = await this.runTool<MaintenanceRequest[]>(ctx, 'get_pending_maintenance', { propertyId: property.id });
+      const units = await this.runTool<Unit[]>(ctx, 'list_units', { propertyId: property.id });
+      const unitName = new Map(units.map((u) => [u.id, u.unitNumber]));
+      const occupied = units.filter((u) => u.status === 'occupied').length;
+      pending.sort(
+        (a, b) =>
+          (rank[a.urgency] ?? 9) - (rank[b.urgency] ?? 9) ||
+          (a.createdAt < b.createdAt ? 1 : -1)
+      );
       totalOpen += pending.length;
-      const summary = await this.runTool<{ occupiedUnits: number; totalUnits: number }>(ctx, 'get_property_summary', { propertyId: property.id });
-      const top = pending.slice(0, 8).map((r) => `• ${r.reference} — ${r.title} [${r.category}/${r.urgency}/${r.status}]${r.unitId ? '' : ' (common area)'}`).join('\n');
+      emergencies += pending.filter((r) => r.urgency === 'emergency').length;
+      highs += pending.filter((r) => r.urgency === 'high').length;
+      const top = pending
+        .slice(0, 8)
+        .map(
+          (r) =>
+            `• ${r.reference} — ${r.title} · ${r.unitId && unitName.get(r.unitId) ? `Unit ${unitName.get(r.unitId)}` : 'common area'} · ${r.urgency} · ${r.status.replace(/_/g, ' ')}`
+        )
+        .join('\n');
       sections.push(
-        `${property.name} (${summary.occupiedUnits}/${summary.totalUnits} units occupied): ${pending.length} open maintenance item(s).\n${top || '• No open items.'}`
+        `${property.name} (${occupied}/${units.length} units occupied): ${pending.length} open.\n${top || '• No open items.'}`
       );
     }
-    events.push(`Property data retrieved for ${scoped.length} propertie(s); ${totalOpen} open item(s)`);
+    events.push(
+      `Briefing prepared: ${totalOpen} open across ${scoped.length} ${scoped.length === 1 ? 'property' : 'properties'}`
+    );
 
-    const text =
-      scoped.length === 0
-        ? 'No properties are available in this demo organization.'
-        : `Here is what I found in your records:\n\n${sections.join('\n\n')}\n\nPrioritize emergencies first, then high-urgency items. Tell me a unit or reference (e.g. MNT-1002) to drill into a specific record.`;
+    let text: string;
+    if (scoped.length === 0) {
+      text = 'No properties are available in this demo organization.';
+    } else if (totalOpen === 0) {
+      text = 'All clear — no open maintenance items in your records.';
+    } else {
+      const lead =
+        emergencies > 0
+          ? `${totalOpen} open (${emergencies} emergenc${emergencies === 1 ? 'y' : 'ies'}, ${highs} high). Start with the emergencies below.`
+          : `${totalOpen} open (${highs} high). No emergencies — start at the top.`;
+      text = `Here is your briefing:\n\n${lead}\n\n${sections.join('\n\n')}\n\nPaste a reference (e.g. MNT-1002) or unit (e.g. B201) to drill into a specific record.`;
+    }
 
     const updated = await this.appendAssistant(conversation.id, text);
-    await this.audit(ctx, conversation.id, 'question.answered', `Answered property question (${totalOpen} open items)`);
+    await this.audit(ctx, conversation.id, 'question.answered', `Answered briefing (${totalOpen} open items)`);
     return {
       ...this.emptyResult(updated, text, stated.engine, stated.model, events),
     };

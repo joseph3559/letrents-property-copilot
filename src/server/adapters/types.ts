@@ -84,6 +84,8 @@ export interface PropertyManagementAdapter {
   ): Promise<MaintenanceRequest[]>;
   getPendingMaintenance(ctx: UserContext, propertyId?: string): Promise<MaintenanceRequest[]>;
   getMaintenanceRequest(ctx: UserContext, requestId: string): Promise<MaintenanceRequest>;
+  getMaintenanceByReference(ctx: UserContext, reference: string): Promise<MaintenanceRequest>;
+  getStaffMember(ctx: UserContext, staffId: string): Promise<StaffMember>;
   createMaintenanceRequest(
     ctx: UserContext,
     input: CreateMaintenanceInput

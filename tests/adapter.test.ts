@@ -110,6 +110,16 @@ describe('DemoAdapter', () => {
     ).rejects.toBeInstanceOf(DuplicateRequestError);
   });
 
+  it('looks up records by reference and staff by id', async () => {
+    const adapter = makeAdapter();
+    const record = await adapter.getMaintenanceByReference(ctx, 'mnt-1002');
+    expect(record.title).toBe('Broken main entrance lock');
+    await expect(adapter.getMaintenanceByReference(ctx, 'MNT-9999')).rejects.toBeInstanceOf(NotFoundError);
+    const member = await adapter.getStaffMember(ctx, 'staff-plumber');
+    expect(member.fullName).toBe('Peter Omondi');
+    await expect(adapter.getStaffMember(ctx, 'staff-ghost')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
   it('recommends skilled staff first', async () => {
     const adapter = makeAdapter();
     const recs = await adapter.recommendStaff(ctx, 'prop-sunrise', 'plumbing');

@@ -91,6 +91,19 @@ export function createToolRegistry(adapter: PropertyManagementAdapter): ToolRegi
       (ctx, input) => adapter.getMaintenanceRequest(ctx, (input as { requestId: string }).requestId)
     ),
     define(
+      'get_maintenance_by_reference',
+      'Get one maintenance request by its reference code e.g. MNT-1002.',
+      z.object({ reference: z.string().min(4).max(16) }),
+      (ctx, input) =>
+        adapter.getMaintenanceByReference(ctx, (input as { reference: string }).reference)
+    ),
+    define(
+      'get_staff_member',
+      'Get one staff member by id (same organization only).',
+      z.object({ staffId: z.string().min(1).max(64) }),
+      (ctx, input) => adapter.getStaffMember(ctx, (input as { staffId: string }).staffId)
+    ),
+    define(
       'check_duplicate_request',
       'Check whether a similar open request already exists (72h window).',
       z.object({
@@ -144,6 +157,12 @@ export function createToolRegistry(adapter: PropertyManagementAdapter): ToolRegi
         };
         return adapter.recommendStaff(ctx, propertyId, category);
       }
+    ),
+    define(
+      'list_units',
+      'List all units of a property, sorted by unit number.',
+      z.object({ propertyId: z.string().min(1).max(64) }),
+      (ctx, input) => adapter.listUnits(ctx, (input as { propertyId: string }).propertyId)
     ),
     define(
       'get_property_summary',

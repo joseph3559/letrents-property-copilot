@@ -105,6 +105,37 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     expect(turn.assistantText).toMatch(/MNT-1002/);
   });
 
+  it('Reference drill-down answers the specific record, not the portfolio dump', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(ctx, 'MNT-1005', undefined);
+    expect(turn.assistantText).toMatch(/Roof leak above bedroom/);
+    expect(turn.assistantText).toMatch(/C301/);
+    expect(turn.assistantText).not.toMatch(/MNT-1003/);
+    expect(turn.assistantText).not.toMatch(/MNT-1006/);
+  });
+
+  it('Unit drill-down focuses on that unit', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(ctx, 'What is happening in unit B201?', undefined);
+    expect(turn.assistantText).toMatch(/B201/);
+    expect(turn.assistantText).not.toMatch(/MNT-1006/);
+  });
+
+  it('Briefing orders urgent items first and names unit locations', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(
+      ctx,
+      'Give me my morning briefing: what is open and urgent?',
+      undefined
+    );
+    const highPos = turn.assistantText.indexOf('MNT-1002');
+    const normalPos = turn.assistantText.indexOf('MNT-1003');
+    expect(highPos).toBeGreaterThanOrEqual(0);
+    expect(normalPos).toBeGreaterThanOrEqual(0);
+    expect(highPos).toBeLessThan(normalPos);
+    expect(turn.assistantText).toMatch(/Unit C301/);
+  });
+
   it('Scenario 8: rejection blocks execution and is recorded', async () => {
     const { agent, store } = makeAgent();
     const turn = await agent.handleMessage(ctx, 'The tap in A102 is dripping all day and night.', undefined);

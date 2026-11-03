@@ -161,6 +161,22 @@ export class DemoAdapter implements PropertyManagementAdapter {
     return row;
   }
 
+  async getMaintenanceByReference(ctx: UserContext, reference: string): Promise<MaintenanceRequest> {
+    const db = await this.store.load();
+    const needle = reference.trim().toUpperCase();
+    const row = db.maintenanceRequests.find((r) => r.reference.toUpperCase() === needle);
+    if (!row) throw new NotFoundError(`No maintenance record found for ${reference.trim()}`);
+    this.assertOrg(ctx, row.orgId);
+    return row;
+  }
+
+  async getStaffMember(ctx: UserContext, staffId: string): Promise<StaffMember> {
+    const member = demoStaff.find((s) => s.id === staffId);
+    if (!member) throw new NotFoundError('Staff member not found');
+    this.assertOrg(ctx, member.orgId);
+    return member;
+  }
+
   async findDuplicate(
     ctx: UserContext,
     candidate: {
