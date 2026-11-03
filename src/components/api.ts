@@ -200,7 +200,7 @@ export const DEMO_PROMPTS: DemoScenario[] = [
     text: 'There is a leaking pipe in B201. Water is spreading across the kitchen floor.',
   },
   {
-    label: 'Sheng report · C301',
+    label: 'Tenant message · C301',
     text: 'Hi, kuna leakage kwa kitchen sink C301, maji inasambaa kwa floor. Tafadhali saidia!',
   },
   {
