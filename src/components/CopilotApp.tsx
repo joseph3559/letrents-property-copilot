@@ -17,6 +17,7 @@ import {
   Menu,
   MessagesSquare,
   MessageSquarePlus,
+  PanelLeft,
   PanelRight,
   RotateCcw,
   Search,
@@ -115,7 +116,7 @@ function ConversationGroups({
       {groups.map((group) => (
         <div key={group.label ?? 'results'}>
           {group.label && (
-            <div className="mb-1 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            <div className="mb-1 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
               {group.label}
             </div>
           )}
@@ -131,8 +132,8 @@ function ConversationGroups({
                   onClick={() => onOpen(c.id)}
                   className={`relative w-full rounded-lg px-2.5 py-2 text-left text-xs transition ${
                     active
-                      ? 'bg-white/15 font-semibold text-white'
-                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                      ? 'bg-letrents-blue/10 font-semibold text-letrents-navy dark:bg-white/15 dark:text-white'
+                      : 'text-slate-600 hover:bg-slate-900/5 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white'
                   }`}
                 >
                   {active && (
@@ -216,6 +217,7 @@ export default function CopilotApp() {
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileInspector, setMobileInspector] = useState(false);
   const [convoQuery, setConvoQuery] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
@@ -456,17 +458,28 @@ export default function CopilotApp() {
       : undefined;
 
   const sidebar = (
-    <div className="flex h-full flex-col bg-letrents-navy text-white">
+    <div className="relative flex h-full flex-col overflow-hidden border-r border-slate-200/80 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-800 dark:border-white/10 dark:from-letrents-navy dark:via-[#0a1c44] dark:to-[#060f28] dark:text-white">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_45%_at_50%_0%,rgba(0,102,255,0.10),transparent_70%)] dark:bg-[radial-gradient(120%_45%_at_50%_0%,rgba(45,212,191,0.14),transparent_70%)]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(rgba(1,28,71,0.08)_1px,transparent_1px)] [background-size:16px_16px] dark:bg-[radial-gradient(rgba(255,255,255,0.07)_1px,transparent_1px)]"
+      />
+      <div className="relative flex h-full min-h-0 flex-col">
       <div className="px-4 pb-2 pt-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/letrents-logo-dark.png" alt="LETRENTS" className="h-8 w-auto" />
+        <img src="/images/letrents-logo.png" alt="LETRENTS" className="h-8 w-auto dark:hidden" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/images/letrents-logo-dark.png" alt="" aria-hidden className="hidden h-8 w-auto dark:block" />
         <div className="mt-1.5 flex items-center gap-2">
-          <span className="text-sm font-bold tracking-tight text-white">Property Copilot</span>
-          <span className="rounded bg-letrents-teal/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-letrents-teal">
+          <span className="text-sm font-bold tracking-tight text-letrents-navy dark:text-white">Property Copilot</span>
+          <span className="rounded bg-teal-600/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:bg-letrents-teal/20 dark:text-letrents-teal">
             Demo
           </span>
         </div>
-        <div className="text-[11px] text-slate-300/80">AI operations assistant</div>
+        <div className="text-[11px] text-slate-500 dark:text-slate-300/80">AI operations assistant</div>
       </div>
       <div className="px-3">
         <motion.button
@@ -482,18 +495,18 @@ export default function CopilotApp() {
         </motion.button>
       </div>
       <div className="px-3 pt-3">
-        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 transition focus-within:border-letrents-teal/60">
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm transition focus-within:border-letrents-blue/60 dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:focus-within:border-letrents-teal/60">
           <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
           <input
             value={convoQuery}
             onChange={(e) => setConvoQuery(e.target.value)}
             placeholder="Search conversations…"
-            className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-white dark:placeholder:text-slate-500"
           />
           {convoQuery && (
             <button
               onClick={() => setConvoQuery('')}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-slate-700 dark:hover:text-white"
               aria-label="Clear search"
             >
               <X className="h-3.5 w-3.5" />
@@ -502,10 +515,10 @@ export default function CopilotApp() {
         </div>
       </div>
       <div className="flex items-center justify-between px-4 pb-1 pt-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300/70">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-300/70">
           Conversations
         </span>
-        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+        <span className="rounded-full bg-slate-900/5 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-white/10 dark:text-slate-300">
           {conversations.length}
         </span>
       </div>
@@ -517,20 +530,20 @@ export default function CopilotApp() {
           onOpen={(id) => void openConversation(id)}
         />
       </div>
-      <div className="border-t border-white/10 px-3 py-3">
-        <div className="flex items-center gap-2.5 rounded-lg bg-white/5 px-2.5 py-2">
+      <div className="border-t border-slate-200/80 px-3 py-3 dark:border-white/10">
+        <div className="flex items-center gap-2.5 rounded-lg bg-white px-2.5 py-2 shadow-sm dark:bg-white/5 dark:shadow-none">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-letrents-blue text-xs font-bold text-white">
             DM
           </span>
           <div className="min-w-0 flex-1 leading-tight">
-            <div className="flex items-center gap-1 text-xs font-bold text-white">
-              <UserCheck className="h-3 w-3 text-emerald-400" />
+            <div className="flex items-center gap-1 text-xs font-bold text-slate-800 dark:text-white">
+              <UserCheck className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
               Demo Manager
             </div>
-            <div className="truncate text-[10px] text-slate-300/80">Sunrise Org · manager role</div>
+            <div className="truncate text-[10px] text-slate-500 dark:text-slate-300/80">Sunrise Org · manager role</div>
           </div>
         </div>
-        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm dark:bg-white/5 dark:shadow-none">
           <span className="relative flex h-2 w-2 shrink-0">
             <span
               className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${
@@ -543,20 +556,21 @@ export default function CopilotApp() {
               }`}
             />
           </span>
-          <span className="truncate text-[11px] font-semibold text-slate-200" title={status?.model ?? ''}>
+          <span className="truncate text-[11px] font-semibold text-slate-600 dark:text-slate-200" title={status?.model ?? ''}>
             {status ? (status.engine === 'meta' ? `Meta AI · ${status.model}` : 'Local fallback') : 'Connecting…'}
           </span>
         </div>
         <button
           onClick={() => void resetDemo()}
           disabled={resetting}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 dark:border-white/10 dark:bg-transparent dark:text-slate-300 dark:shadow-none dark:hover:bg-white/5 dark:hover:text-white"
           title="Clear conversations and copilot-created records; restore seed data"
         >
           <RotateCcw className={`h-3 w-3 ${resetting ? 'animate-spin' : ''}`} />
           {resetting ? 'Resetting…' : 'Reset demo data'}
         </button>
-        <div className="mt-1.5 text-center text-[10px] text-slate-500">Synthetic dataset · no real tenants</div>
+        <div className="mt-1.5 text-center text-[10px] text-slate-400 dark:text-slate-500">Synthetic dataset · no real tenants</div>
+      </div>
       </div>
     </div>
   );
@@ -817,7 +831,14 @@ export default function CopilotApp() {
       </AnimatePresence>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-72 shrink-0 md:block">{sidebar}</aside>
+        <motion.aside
+          initial={false}
+          animate={{ width: sidebarOpen ? 288 : 0 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+          className="hidden shrink-0 overflow-hidden md:block"
+        >
+          <div className="h-full w-72">{sidebar}</div>
+        </motion.aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
           <header className="z-10 flex items-center gap-2 border-b border-slate-200/80 bg-white/85 px-3 py-2.5 backdrop-blur dark:border-white/10 dark:bg-letrents-night/85">
@@ -827,6 +848,14 @@ export default function CopilotApp() {
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setSidebarOpen((v) => !v)}
+              className="hidden rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10 md:block"
+              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              <PanelLeft className="h-5 w-5" />
             </button>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -1117,7 +1146,7 @@ export default function CopilotApp() {
             >
               <button
                 onClick={() => setMobileNav(false)}
-                className="absolute right-2 top-2 z-10 rounded-lg p-1.5 text-white/70 hover:bg-white/10"
+                className="absolute right-2 top-2 z-10 rounded-lg p-1.5 text-slate-500 hover:bg-slate-900/5 dark:text-white/70 dark:hover:bg-white/10"
                 aria-label="Close navigation"
               >
                 <X className="h-5 w-5" />
