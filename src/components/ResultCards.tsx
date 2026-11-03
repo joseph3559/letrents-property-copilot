@@ -371,6 +371,45 @@ export function ApprovalCard({
   );
 }
 
+export function ClarifyingCard({
+  turn,
+  index = 0,
+}: {
+  turn: TurnResult;
+  index?: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 + index * 0.12, type: 'spring', stiffness: 160, damping: 22 }}
+      className="rounded-xl border border-letrents-blue/30 bg-white px-4 py-3 shadow-[0_1px_3px_rgba(1,28,71,0.08)] dark:border-letrents-blue/40 dark:bg-letrents-nightcard"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-bold text-letrents-navy dark:text-white">
+          Understood so far
+        </span>
+        {turn.analysis && (
+          <>
+            <span className={urgencyClass(turn.analysis.urgency)}>{turn.analysis.urgency}</span>
+            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-white/10 dark:text-slate-300">
+              {turn.analysis.category.replace(/_/g, ' ')}
+            </span>
+          </>
+        )}
+      </div>
+      {turn.analysis && (
+        <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">{turn.analysis.description}</p>
+      )}
+      {turn.needsClarification && (
+        <p className="mt-2 border-t border-slate-100 pt-2 text-sm font-semibold text-slate-800 dark:border-white/10 dark:text-slate-100">
+          {turn.needsClarification}
+        </p>
+      )}
+    </motion.div>
+  );
+}
+
 export function TurnCards({
   turn,
   onDecide,
@@ -398,14 +437,18 @@ export function TurnCards({
           </span>
         </motion.div>
       )}
-      {turn.analysis && (
-        <AnalysisCard
-          analysis={turn.analysis}
-          property={turn.property}
-          unit={turn.unit}
-          tenant={turn.tenant}
-          index={cardIndex++}
-        />
+      {turn.needsClarification ? (
+        <ClarifyingCard turn={turn} index={cardIndex++} />
+      ) : (
+        turn.analysis && (
+          <AnalysisCard
+            analysis={turn.analysis}
+            property={turn.property}
+            unit={turn.unit}
+            tenant={turn.tenant}
+            index={cardIndex++}
+          />
+        )
       )}
       {turn.duplicateOf && (
         <motion.div
@@ -418,7 +461,9 @@ export function TurnCards({
           new request was created.
         </motion.div>
       )}
-      {turn.analysis && <HistoryCard history={turn.history} index={cardIndex++} />}
+      {turn.analysis && !turn.needsClarification && (
+        <HistoryCard history={turn.history} index={cardIndex++} />
+      )}
       {turn.segments.length > 0 && imageDataUrl && (
         <SegmentOverlay imageDataUrl={imageDataUrl} segments={turn.segments} index={cardIndex++} />
       )}

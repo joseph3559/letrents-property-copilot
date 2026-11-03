@@ -94,6 +94,37 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     expect(turn.approval).toBeNull();
   });
 
+  it('Multi-turn: property answer continues the pending complaint', async () => {
+    const { agent } = makeAgent();
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
+    expect(first.needsClarification).not.toBeNull();
+    const second = await agent.handleMessage(ctx, 'Acacia', first.conversation.id);
+    expect(second.needsClarification).toBeNull();
+    expect(second.property?.name).toBe('Acacia Heights');
+    expect(second.analysis?.category).toBe('water_supply');
+    expect(second.approval?.status).toBe('pending');
+  });
+
+  it('Multi-turn: unit answer resolves property by inference', async () => {
+    const { agent } = makeAgent();
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
+    expect(first.needsClarification).not.toBeNull();
+    const second = await agent.handleMessage(ctx, 'K1', first.conversation.id);
+    expect(second.needsClarification).toBeNull();
+    expect(second.property?.name).toBe('Acacia Heights');
+    expect(second.unit?.unitNumber).toBe('K1');
+    expect(second.approval?.status).toBe('pending');
+  });
+
+  it('Multi-turn: unrelated follow-up clears pending state instead of hijacking', async () => {
+    const { agent } = makeAgent();
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
+    expect(first.needsClarification).not.toBeNull();
+    const second = await agent.handleMessage(ctx, 'never mind, thanks', first.conversation.id);
+    expect(second.needsClarification).toBeNull();
+    expect(second.approval).toBeNull();
+  });
+
   it('Scenario 6: property intelligence uses real records', async () => {
     const { agent } = makeAgent();
     const turn = await agent.handleMessage(

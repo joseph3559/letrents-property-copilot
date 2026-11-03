@@ -78,6 +78,7 @@ Read the tenant/manager complaint and return ONLY a JSON object with this exact 
 }
 Rules:
 - Never invent property names, unit numbers, or tenant names. Use null when not stated.
+- Doors, windows, frames, and hinges are structural; locks, gates, and entry security are security.
 - "emergency" only for fire, sparks/electrical danger, gas, flooding, sewage overflow, or structural collapse risk.
 - Base urgency on the reported facts, not worst-case speculation.`;
 
@@ -232,6 +233,23 @@ export class CopilotAgent {
       }
     };
 
+    // Multi-turn slot filling: if the previous turn asked for a missing
+    // property/unit, a slot answer continues that complaint instead of
+    // starting fresh. Anything else closes the pending state.
+    if (conversation.pendingComplaint) {
+      const pending = conversation.pendingComplaint;
+      await this.setPending(conversation.id, null);
+      if (await this.looksLikeSlotAnswer(ctx, content)) {
+        const combined =
+          `Original complaint: ${pending}\nAdditional info from manager: ${content}`.slice(0, 2000);
+        events.push('Continuing the pending complaint with your answer');
+        return await this.handleComplaint(
+          ctx, conversation, combined, imageDataUrl, runWithFallback, events, getEngineState
+        );
+      }
+      events.push('Previous clarification closed; handling as a new message');
+    }
+
     const { intent } = await runWithFallback((p) =>
       completeJson(p, INTENT_SYSTEM, content, intentSchema)
     );
@@ -280,6 +298,26 @@ export class CopilotAgent {
       safetyGuidance: null,
       segments: [],
     };
+  }
+
+  /** Routing pre-check: unit mention or property name in a follow-up message. */
+  private async looksLikeSlotAnswer(ctx: UserContext, content: string): Promise<boolean> {
+    if (extractUnitMention(content)) return true;
+    // Direct routing lookup (the resumed flow itself uses registry tools).
+    const properties = await this.deps.adapter.searchProperties(ctx, '');
+    const lower = content.toLowerCase();
+    return properties.some(
+      (p) =>
+        lower.includes(p.name.toLowerCase()) ||
+        lower.includes(p.name.toLowerCase().split(' ')[0])
+    );
+  }
+
+  private async setPending(conversationId: string, complaint: string | null): Promise<void> {
+    await this.deps.store.update((db) => {
+      const convo = db.conversations.find((c) => c.id === conversationId);
+      if (convo) convo.pendingComplaint = complaint;
+    });
   }
 
   private async appendAssistant(conversationId: string, text: string): Promise<Conversation> {
@@ -340,6 +378,7 @@ export class CopilotAgent {
       if (matches.length === 1) property = matches[0];
       else if (matches.length > 1) {
         const text = `I found several properties matching "${analysis.propertyMention}": ${matches.map((m) => m.name).join(', ')}. Which one is affected?`;
+        await this.setPending(conversation.id, content.slice(0, 1000));
         const updated = await this.appendAssistant(conversation.id, text);
         return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, needsClarification: text, safetyGuidance: safety.guidance };
       }
@@ -371,6 +410,7 @@ export class CopilotAgent {
     }
     if (!property) {
       const text = `Which property is affected? I manage: ${allProperties.map((p) => p.name).join(', ')}.`;
+      await this.setPending(conversation.id, content.slice(0, 1000));
       const updated = await this.appendAssistant(conversation.id, text);
       await this.audit(ctx, conversation.id, 'complaint.clarification', 'Asked for property clarification');
       return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, needsClarification: text, safetyGuidance: safety.guidance };
@@ -385,6 +425,7 @@ export class CopilotAgent {
         events.push(`Unit resolved: ${unit.unitNumber}`);
       } else if (matches.length > 1) {
         const text = `I found several units matching "${analysis.unitMention}" in ${property.name}. Could you confirm the exact unit number?`;
+        await this.setPending(conversation.id, content.slice(0, 1000));
         const updated = await this.appendAssistant(conversation.id, text);
         return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, property, needsClarification: text, safetyGuidance: safety.guidance };
       } else {

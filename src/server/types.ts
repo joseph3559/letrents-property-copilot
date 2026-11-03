@@ -97,6 +97,8 @@ export interface Conversation {
   userId: string;
   title: string;
   messages: ChatMessage[];
+  /** Original complaint text awaiting a slot answer (property/unit), if any. */
+  pendingComplaint?: string | null;
   createdAt: string;
   updatedAt: string;
 }

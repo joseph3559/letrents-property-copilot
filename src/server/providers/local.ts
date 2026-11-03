@@ -10,7 +10,7 @@ const CATEGORY_KEYWORDS: Array<{ category: MaintenanceCategory; words: string[] 
   { category: 'plumbing', words: ['leak', 'pipe', 'tap', 'faucet', 'drain', 'toilet', 'sink', 'sewage', 'blockage', 'dripping'] },
   { category: 'electrical', words: ['light', 'lights', 'power', 'socket', 'switch', 'spark', 'electric', 'wiring', 'breaker', 'bulb'] },
   { category: 'security', words: ['lock', 'gate', 'security', 'break', 'broken door', 'burglar', 'intruder', 'fence', 'guard'] },
-  { category: 'structural', words: ['roof', 'ceiling', 'wall', 'crack', 'floor', 'collapse', 'plaster', 'paint', 'door frame', 'window'] },
+  { category: 'structural', words: ['roof', 'ceiling', 'wall', 'crack', 'floor', 'collapse', 'plaster', 'paint', 'door', 'hinge', 'window', 'frame'] },
   { category: 'water_supply', words: ['water pressure', 'pump', 'borehole', 'tank', 'no water', 'shortage', 'supply'] },
   { category: 'cleaning', words: ['garbage', 'clean', 'waste', 'rubbish', 'corridor dirt', 'staircase'] },
   { category: 'hvac', words: ['heater', 'aircon', 'air-con', 'ventilation', 'fan', 'cooling', 'heating'] },
