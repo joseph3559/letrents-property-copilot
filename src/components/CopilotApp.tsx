@@ -797,8 +797,10 @@ export default function CopilotApp() {
                   From complaints to action.
                 </h1>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                  Describe a maintenance issue or ask about your portfolio. The Copilot pulls real
-                  records, analyzes the problem, and prepares approvals — you stay in control.
+                  Forward a tenant message, speak a complaint, or drop in a damage photo. The
+                  Copilot reads your property records, analyzes the issue, and lines up the
+                  ticket, the staff pick, and the tenant reply — nothing moves without your
+                  approval.
                 </p>
                 <div className="mt-6 grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
                   {DEMO_PROMPTS.map((scenario, i) => {
