@@ -99,6 +99,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** Original complaint text awaiting a slot answer (property/unit), if any. */
   pendingComplaint?: string | null;
+  /** Last resolved property in this conversation (sticky context for follow-ups). */
+  lastPropertyId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

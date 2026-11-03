@@ -247,6 +247,9 @@ export default function CopilotApp() {
           needsClarification: null,
           safetyGuidance: null,
           segments: [],
+          assumedProperty: false,
+          clarifyOptions: null,
+          suggestions: [],
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to open conversation');
@@ -313,11 +316,11 @@ export default function CopilotApp() {
   );
 
   const decide = useCallback(
-    async (approvalId: string, decision: 'approve' | 'reject') => {
+    async (approvalId: string, decision: 'approve' | 'reject', note?: string) => {
       setBusyApproval(approvalId);
       setError(null);
       try {
-        const result = await api.decide(approvalId, decision);
+        const result = await api.decide(approvalId, decision, note);
         setTurn((prev) =>
           prev && prev.approval?.id === approvalId
             ? {
@@ -892,7 +895,8 @@ export default function CopilotApp() {
                       turn={turn}
                       busyApproval={busyApproval}
                       imageDataUrl={lastImage}
-                      onDecide={(approvalId, decision) => decide(approvalId, decision)}
+                      onDecide={(approvalId, decision, note) => decide(approvalId, decision, note)}
+                      onSelectOption={(label) => void send(label)}
                     />
                   )}
 

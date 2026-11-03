@@ -51,6 +51,12 @@ export interface AgentTurnResult {
   needsClarification: string | null;
   safetyGuidance: string | null;
   segments: SegmentBox[];
+  /** True when the property was assumed from earlier conversation context. */
+  assumedProperty: boolean;
+  /** One-tap options for clarification questions (properties or units). */
+  clarifyOptions: Array<{ id: string; label: string }> | null;
+  /** Contextual follow-up messages (ChatGPT-style suggestion chips). */
+  suggestions: string[];
 }
 
 interface AgentDeps {
@@ -79,6 +85,7 @@ Read the tenant/manager complaint and return ONLY a JSON object with this exact 
 Rules:
 - Never invent property names, unit numbers, or tenant names. Use null when not stated.
 - Doors, windows, frames, and hinges are structural; locks, gates, and entry security are security.
+- If a photo is attached, mine it: visible damage goes in symptoms, and any unit/door number visible in the photo becomes unitMention.
 - "emergency" only for fire, sparks/electrical danger, gas, flooding, sewage overflow, or structural collapse risk.
 - Base urgency on the reported facts, not worst-case speculation.`;
 
@@ -126,6 +133,16 @@ function extractUnitMention(text: string): string | null {
     if (match?.[1]) return match[1].toUpperCase();
   }
   return null;
+}
+
+/** Extraction payload: marks photo attachment so the model mines the image. */
+export function buildExtractionPayload(content: string, hasImage: boolean): string {
+  if (!hasImage) return content;
+  return (
+    '(A maintenance photo is attached. Describe visible damage in symptoms, ' +
+    'and report any unit/door number visible in the photo.)\n---\n' +
+    content
+  );
 }
 
 export class CopilotAgent {
@@ -260,7 +277,10 @@ export class CopilotAgent {
         "Hello! I'm the LETRENTS Property Copilot. Describe a maintenance complaint (for example, “There is a leaking pipe in B201”) or ask about your properties, and I'll pull the records and prepare the next steps.";
       await this.appendAssistant(conversation.id, text);
       await this.audit(ctx, conversation.id, 'conversation.greeting', 'Greeting answered');
-      return this.emptyResult(conversation, text, activeEngine, activeProvider.model, events);
+      return {
+        ...this.emptyResult(conversation, text, activeEngine, activeProvider.model, events),
+        suggestions: ['Morning briefing', 'Report a maintenance issue'],
+      };
     }
 
     if (intent === 'question') {
@@ -297,6 +317,9 @@ export class CopilotAgent {
       needsClarification: null,
       safetyGuidance: null,
       segments: [],
+      assumedProperty: false,
+      clarifyOptions: null,
+      suggestions: [],
     };
   }
 
@@ -317,6 +340,13 @@ export class CopilotAgent {
     await this.deps.store.update((db) => {
       const convo = db.conversations.find((c) => c.id === conversationId);
       if (convo) convo.pendingComplaint = complaint;
+    });
+  }
+
+  private async setLastProperty(conversationId: string, propertyId: string): Promise<void> {
+    await this.deps.store.update((db) => {
+      const convo = db.conversations.find((c) => c.id === conversationId);
+      if (convo) convo.lastPropertyId = propertyId;
     });
   }
 
@@ -344,7 +374,13 @@ export class CopilotAgent {
     const stated = (): { engine: 'meta' | 'local'; model: string } => getEngineState();
 
     const analysis = await runWithFallback((p) =>
-      completeJson(p, EXTRACT_SYSTEM, content, complaintAnalysisSchema, imageDataUrl)
+      completeJson(
+        p,
+        EXTRACT_SYSTEM,
+        buildExtractionPayload(content, Boolean(imageDataUrl)),
+        complaintAnalysisSchema,
+        imageDataUrl
+      )
     );
     events.push(`Complaint analyzed: ${analysis.category} / ${analysis.urgency}`);
 
@@ -380,7 +416,13 @@ export class CopilotAgent {
         const text = `I found several properties matching "${analysis.propertyMention}": ${matches.map((m) => m.name).join(', ')}. Which one is affected?`;
         await this.setPending(conversation.id, content.slice(0, 1000));
         const updated = await this.appendAssistant(conversation.id, text);
-        return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, needsClarification: text, safetyGuidance: safety.guidance };
+        return {
+          ...this.emptyResult(updated, text, stated().engine, stated().model, events),
+          analysis,
+          needsClarification: text,
+          safetyGuidance: safety.guidance,
+          clarifyOptions: matches.map((p) => ({ id: p.id, label: p.name })),
+        };
       }
     }
     if (!property) {
@@ -396,8 +438,12 @@ export class CopilotAgent {
       }
     }
     if (!property && allProperties.length === 1) property = allProperties[0];
+    // When inference already searched every property with zero hits anywhere,
+    // the later unit-resolution step must not burn another tool call.
+    let unitNowhere = false;
     if (!property && analysis.unitMention) {
       // Try to locate the unit across properties to infer the property.
+      unitNowhere = true;
       for (const candidate of allProperties) {
         const units = await this.runTool<Unit[]>(ctx, 'find_units', { propertyId: candidate.id, unitNumberQuery: analysis.unitMention });
         if (units.length === 1) {
@@ -406,6 +452,18 @@ export class CopilotAgent {
           events.push(`Unit inferred from message text: ${unit.unitNumber}`);
           break;
         }
+        if (units.length > 1) unitNowhere = false;
+      }
+    }
+    // Sticky context: reuse the conversation's last property, stated openly.
+    let assumedProperty = false;
+    if (!property && conversation.lastPropertyId) {
+      try {
+        property = await this.runTool<Property>(ctx, 'get_property_details', { propertyId: conversation.lastPropertyId });
+        assumedProperty = true;
+        events.push(`No property stated — assuming ${property.name} from earlier in this conversation`);
+      } catch {
+        // Stale reference; fall through to clarification.
       }
     }
     if (!property) {
@@ -413,12 +471,19 @@ export class CopilotAgent {
       await this.setPending(conversation.id, content.slice(0, 1000));
       const updated = await this.appendAssistant(conversation.id, text);
       await this.audit(ctx, conversation.id, 'complaint.clarification', 'Asked for property clarification');
-      return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, needsClarification: text, safetyGuidance: safety.guidance };
+      return {
+        ...this.emptyResult(updated, text, stated().engine, stated().model, events),
+        analysis,
+        needsClarification: text,
+        safetyGuidance: safety.guidance,
+        clarifyOptions: allProperties.map((p) => ({ id: p.id, label: p.name })),
+      };
     }
     events.push(`Property resolved: ${property.name}`);
+    await this.setLastProperty(conversation.id, property.id);
 
     // Resolve unit (optional for common-area issues); reuse the inference hit.
-    if (!unit && analysis.unitMention) {
+    if (!unit && analysis.unitMention && !unitNowhere) {
       const matches = await this.runTool<Unit[]>(ctx, 'find_units', { propertyId: property.id, unitNumberQuery: analysis.unitMention });
       if (matches.length === 1) {
         unit = matches[0];
@@ -427,7 +492,14 @@ export class CopilotAgent {
         const text = `I found several units matching "${analysis.unitMention}" in ${property.name}. Could you confirm the exact unit number?`;
         await this.setPending(conversation.id, content.slice(0, 1000));
         const updated = await this.appendAssistant(conversation.id, text);
-        return { ...this.emptyResult(updated, text, stated().engine, stated().model, events), analysis, property, needsClarification: text, safetyGuidance: safety.guidance };
+        return {
+          ...this.emptyResult(updated, text, stated().engine, stated().model, events),
+          analysis,
+          property,
+          needsClarification: text,
+          safetyGuidance: safety.guidance,
+          clarifyOptions: matches.map((u) => ({ id: u.id, label: `Unit ${u.unitNumber}` })),
+        };
       } else {
         events.push(`Unit mention "${analysis.unitMention}" did not match any unit in ${property.name}`);
       }
@@ -537,6 +609,13 @@ export class CopilotAgent {
         ? `I found ${history.length} related past record(s), latest: “${history[0].title}” (${history[0].status}).`
         : 'No prior maintenance history found for this location.',
     ];
+    if (assumedProperty) {
+      lines.splice(
+        1,
+        0,
+        `Note: you didn't name a property, so I assumed ${property.name} (same as earlier in this chat) — tell me if this issue is elsewhere.`
+      );
+    }
     if (safety.guidance) lines.push(`Safety notice: ${safety.guidance}`);
     if (recommendations[0]) {
       lines.push(`Recommended: ${recommendations[0].staff.fullName} (${recommendations[0].staff.role}) — ${recommendations[0].reason}.`);
@@ -563,6 +642,9 @@ export class CopilotAgent {
       needsClarification: null,
       safetyGuidance: safety.guidance,
       segments,
+      assumedProperty,
+      clarifyOptions: null,
+      suggestions: ['Show open tickets', 'Report another issue'],
     };
   }
 
@@ -641,7 +723,10 @@ export class CopilotAgent {
     const text = lines.join('\n');
     const updated = await this.appendAssistant(conversation.id, text);
     await this.audit(ctx, conversation.id, 'question.record_lookup', `Looked up ${record.reference}`);
-    return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+    return {
+      ...this.emptyResult(updated, text, stated.engine, stated.model, events),
+      suggestions: ['Morning briefing', 'Report another issue'],
+    };
   }
 
   private async locateUnit(
@@ -692,7 +777,13 @@ export class CopilotAgent {
     const text = lines.join('\n');
     const updated = await this.appendAssistant(conversation.id, text);
     await this.audit(ctx, conversation.id, 'question.unit_lookup', `Looked up unit ${unit.unitNumber}`);
-    return { ...this.emptyResult(updated, text, stated.engine, stated.model, events) };
+    return {
+      ...this.emptyResult(updated, text, stated.engine, stated.model, events),
+      suggestions:
+        open.length > 0
+          ? [open[0].reference, 'Morning briefing']
+          : ['Morning briefing', 'Report another issue'],
+    };
   }
 
   private async answerBriefing(
@@ -712,6 +803,7 @@ export class CopilotAgent {
 
     const rank: Record<string, number> = { emergency: 0, high: 1, normal: 2, low: 3 };
     const sections: string[] = [];
+    const topRefs: string[] = [];
     let totalOpen = 0;
     let emergencies = 0;
     let highs = 0;
@@ -728,6 +820,7 @@ export class CopilotAgent {
       totalOpen += pending.length;
       emergencies += pending.filter((r) => r.urgency === 'emergency').length;
       highs += pending.filter((r) => r.urgency === 'high').length;
+      if (pending[0] && topRefs.length < 2) topRefs.push(pending[0].reference);
       const top = pending
         .slice(0, 8)
         .map(
@@ -760,6 +853,7 @@ export class CopilotAgent {
     await this.audit(ctx, conversation.id, 'question.answered', `Answered briefing (${totalOpen} open items)`);
     return {
       ...this.emptyResult(updated, text, stated.engine, stated.model, events),
+      suggestions: totalOpen > 0 ? [...topRefs.slice(0, 2), 'Report another issue'] : ['Report another issue'],
     };
   }
 
@@ -832,7 +926,7 @@ export class CopilotAgent {
         item.payload = { ...item.payload, createdRequestId: finalRecord.id, createdReference: finalRecord.reference };
         return { ...item };
       });
-      await this.audit(ctx, approval.conversationId, 'approval.executed', `Approved and created ${finalRecord.reference}`, 'maintenance_request', finalRecord.id);
+      await this.audit(ctx, approval.conversationId, 'approval.executed', `Approved and created ${finalRecord.reference}${note ? ` — ${note}` : ''}`, 'maintenance_request', finalRecord.id);
       return { approval: updated, created: finalRecord };
     } catch (error) {
       await this.deps.store.update((store) => {

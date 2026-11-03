@@ -28,8 +28,8 @@ export function loadConfig(): CopilotConfig {
     metaModel: readEnv('META_MODEL') ?? 'muse-spark-1.3',
     metaTimeoutMs: timeoutRaw ? Number.parseInt(timeoutRaw, 10) || 90000 : 90000,
     agentMaxIterations: iterationsRaw
-      ? Math.min(Math.max(Number.parseInt(iterationsRaw, 10) || 8, 1), 20)
-      : 8,
+      ? Math.min(Math.max(Number.parseInt(iterationsRaw, 10) || 12, 1), 20)
+      : 12,
     demoDataDir: readEnv('DEMO_DATA_DIR') ?? '.data',
     demoOrgId: readEnv('DEMO_ORG_ID') ?? 'org-sunrise-demo',
     demoUserId: readEnv('DEMO_USER_ID') ?? 'user-demo-manager',

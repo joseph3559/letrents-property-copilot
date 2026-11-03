@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DemoStore } from '../src/server/store';
 import { DemoAdapter } from '../src/server/adapters/demo-adapter';
-import { CopilotAgent } from '../src/server/agent/loop';
+import { CopilotAgent, buildExtractionPayload } from '../src/server/agent/loop';
 import { UserContext } from '../src/server/types';
 
 const ctx: UserContext = { userId: 'user-demo-manager', orgId: 'org-sunrise-demo', role: 'demo_manager' };
@@ -116,6 +116,31 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     expect(second.approval?.status).toBe('pending');
   });
 
+  it('Sticky context: follow-up complaint reuses the conversation property', async () => {
+    const { agent } = makeAgent();
+    const first = await agent.handleMessage(ctx, 'There is a leaking pipe in B201.', undefined);
+    expect(first.property?.name).toBe('Sunrise Apartments');
+    const second = await agent.handleMessage(
+      ctx,
+      'The corridor lights are broken and need repair.',
+      first.conversation.id
+    );
+    expect(second.needsClarification).toBeNull();
+    expect(second.property?.name).toBe('Sunrise Apartments');
+    expect(second.assumedProperty).toBe(true);
+    expect(second.approval?.status).toBe('pending');
+  });
+
+  it('Clarification offers one-tap property options', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
+    expect(turn.needsClarification).not.toBeNull();
+    expect(turn.clarifyOptions).toMatchObject([
+      { id: 'prop-sunrise', label: 'Sunrise Apartments' },
+      { id: 'prop-acacia', label: 'Acacia Heights' },
+    ]);
+  });
+
   it('Multi-turn: unrelated follow-up clears pending state instead of hijacking', async () => {
     const { agent } = makeAgent();
     const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
@@ -167,6 +192,17 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     expect(turn.assistantText).toMatch(/Unit C301/);
   });
 
+  it('Approval note is written to the audit trail', async () => {
+    const { agent, store } = makeAgent();
+    const turn = await agent.handleMessage(ctx, 'The tap in A102 is dripping all day and night.', undefined);
+    expect(turn.approval?.status).toBe('pending');
+    const { approval } = await agent.decideApproval(ctx, turn.approval!.id, 'approve', 'Notify tenant by SMS.');
+    expect(approval.status).toBe('executed');
+    const db = await store.load();
+    const event = db.auditEvents.find((e) => e.action === 'approval.executed');
+    expect(event?.detail).toMatch(/Notify tenant by SMS/);
+  });
+
   it('Scenario 8: rejection blocks execution and is recorded', async () => {
     const { agent, store } = makeAgent();
     const turn = await agent.handleMessage(ctx, 'The tap in A102 is dripping all day and night.', undefined);
@@ -192,6 +228,41 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     const turn = await agent.handleMessage(ctx, 'Hello!', undefined);
     expect(turn.approval).toBeNull();
     expect(turn.assistantText).toMatch(/Copilot/);
+  });
+
+  it('extraction payload marks photo attachment for the model', () => {
+    expect(buildExtractionPayload('leak here', false)).toBe('leak here');
+    const marked = buildExtractionPayload('leak here', true);
+    expect(marked).toMatch(/photo is attached/);
+    expect(marked).toMatch(/leak here/);
+  });
+
+  it('Briefing offers reference follow-up suggestions', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(
+      ctx,
+      'Give me my morning briefing: what is open and urgent?',
+      undefined
+    );
+    expect(turn.suggestions.length).toBeGreaterThan(0);
+    expect(turn.suggestions.some((s) => /^MNT-\d+$/.test(s))).toBe(true);
+  });
+
+  it('Complaint success offers follow-up suggestions', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(
+      ctx,
+      'There is a leaking pipe in B201. Water is spreading across the kitchen floor.',
+      undefined
+    );
+    expect(turn.approval?.status).toBe('pending');
+    expect(turn.suggestions.length).toBeGreaterThan(0);
+  });
+
+  it('Greeting offers starter suggestions', async () => {
+    const { agent } = makeAgent();
+    const turn = await agent.handleMessage(ctx, 'Hello!', undefined);
+    expect(turn.suggestions.length).toBeGreaterThan(0);
   });
 
   it('iteration budget is enforced', async () => {

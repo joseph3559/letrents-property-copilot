@@ -124,6 +124,9 @@ export interface TurnResult {
   needsClarification: string | null;
   safetyGuidance: string | null;
   segments: SegmentView[];
+  assumedProperty: boolean;
+  clarifyOptions: Array<{ id: string; label: string }> | null;
+  suggestions: string[];
 }
 
 export interface StatusView {
@@ -171,10 +174,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ content, conversationId, imageDataUrl }),
     }),
-  decide: (approvalId: string, decision: 'approve' | 'reject') =>
+  decide: (approvalId: string, decision: 'approve' | 'reject', note?: string) =>
     request<{ approval: ApprovalView; created: MaintenanceView | null }>(
       `/api/copilot/approvals/${approvalId}`,
-      { method: 'POST', body: JSON.stringify({ decision }) }
+      { method: 'POST', body: JSON.stringify({ decision, ...(note ? { note } : {}) }) }
     ),
   maintenance: () => request<MaintenanceView[]>('/api/copilot/maintenance'),
   portfolio: () => request<PortfolioEntry[]>('/api/copilot/portfolio'),
