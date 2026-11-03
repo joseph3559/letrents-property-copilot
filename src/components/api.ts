@@ -185,10 +185,39 @@ export const api = {
     ),
 };
 
-export const DEMO_PROMPTS = [
-  'There is a leaking pipe in B201. Water is spreading across the kitchen floor.',
-  'The main entrance lock is broken and residents cannot secure the building.',
-  'There are sparks coming from the electrical panel in C301.',
-  'Summarize all unresolved maintenance issues in Sunrise Apartments.',
-  'The water pump is not working.',
+export interface DemoScenario {
+  /** Short label shown on the card. */
+  label: string;
+  /** Full message sent to the Copilot. */
+  text: string;
+  /** Optional bundled photo (public path) attached with the message. */
+  image?: string;
+}
+
+export const DEMO_PROMPTS: DemoScenario[] = [
+  {
+    label: 'Leaking pipe · B201',
+    text: 'There is a leaking pipe in B201. Water is spreading across the kitchen floor.',
+  },
+  {
+    label: 'Sheng report · C301',
+    text: 'Hi, kuna leakage kwa kitchen sink C301, maji inasambaa kwa floor. Tafadhali saidia!',
+  },
+  {
+    label: 'Broken entrance lock',
+    text: 'The main entrance lock is broken and residents cannot secure the building.',
+  },
+  {
+    label: 'Electrical emergency · C301',
+    text: 'There are sparks coming from the electrical panel in C301.',
+  },
+  {
+    label: 'Damage photo + SAM 3.1',
+    text: 'Tenant in C301 sent this photo of the pipe under their kitchen sink. It started dripping last night.',
+    image: '/demo/leak-c301.jpg',
+  },
+  {
+    label: 'Morning briefing',
+    text: 'Give me my morning briefing: what is open and urgent across my properties?',
+  },
 ];

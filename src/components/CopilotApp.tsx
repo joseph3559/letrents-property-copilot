@@ -5,6 +5,7 @@ import {
   Activity,
   BarChart3,
   Building2,
+  Camera,
   CheckCircle2,
   ChevronDown,
   CircleDashed,
@@ -13,6 +14,7 @@ import {
   ImagePlus,
   Loader2,
   Menu,
+  MessagesSquare,
   MessageSquarePlus,
   PanelRight,
   RotateCcw,
@@ -21,7 +23,6 @@ import {
   ShieldAlert,
   Sparkles,
   UserCheck,
-  Waves,
   X,
   Zap,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ import {
   AuditView,
   ConversationSummary,
   DEMO_PROMPTS,
+  DemoScenario,
   MaintenanceView,
   PortfolioEntry,
   StatusView,
@@ -42,7 +44,7 @@ import ThemeToggle from './ThemeToggle';
 import Typewriter from './Typewriter';
 import VoiceRecorder from './VoiceRecorder';
 
-const PROMPT_ICONS = [Droplets, ShieldAlert, Zap, BarChart3, Waves];
+const PROMPT_ICONS = [Droplets, MessagesSquare, ShieldAlert, Zap, Camera, BarChart3];
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -254,17 +256,18 @@ export default function CopilotApp() {
   );
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, attachedImage?: string) => {
       const content = text.trim();
       if (!content || sending) return;
       setSending(true);
       setError(null);
       setMobileNav(false);
+      const outgoingImage = attachedImage ?? imageDataUrl;
       try {
-        const result = await api.send(content, activeId, imageDataUrl);
+        const result = await api.send(content, activeId, outgoingImage);
         setTurn(result);
         setFreshTurn(true);
-        setLastImage(imageDataUrl ?? null);
+        setLastImage(outgoingImage ?? null);
         setActiveId(result.conversation.id);
         setInput('');
         setImageName(null);
@@ -277,6 +280,36 @@ export default function CopilotApp() {
       }
     },
     [activeId, imageDataUrl, sending, refreshSide]
+  );
+
+  const [loadingScenario, setLoadingScenario] = useState<string | null>(null);
+
+  const sendScenario = useCallback(
+    async (scenario: DemoScenario) => {
+      if (sending) return;
+      if (!scenario.image) {
+        void send(scenario.text);
+        return;
+      }
+      setLoadingScenario(scenario.label);
+      try {
+        const res = await fetch(scenario.image);
+        if (!res.ok) throw new Error('Demo photo unavailable');
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('Failed to read demo photo'));
+          reader.readAsDataURL(blob);
+        });
+        await send(scenario.text, dataUrl);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load demo photo');
+      } finally {
+        setLoadingScenario(null);
+      }
+    },
+    [send, sending]
   );
 
   const decide = useCallback(
@@ -768,28 +801,43 @@ export default function CopilotApp() {
                   records, analyzes the problem, and prepares approvals — you stay in control.
                 </p>
                 <div className="mt-6 grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
-                  {DEMO_PROMPTS.map((p, i) => {
+                  {DEMO_PROMPTS.map((scenario, i) => {
                     const Icon = PROMPT_ICONS[i % PROMPT_ICONS.length];
+                    const loading = loadingScenario === scenario.label;
                     return (
                       <motion.button
-                        key={p}
+                        key={scenario.label}
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.15 + i * 0.08 }}
                         whileHover={{ y: -2 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => send(p)}
+                        onClick={() => void sendScenario(scenario)}
                         disabled={sending}
                         className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-letrents-blue/50 hover:shadow disabled:opacity-50 dark:border-white/10 dark:bg-letrents-nightcard dark:hover:border-letrents-blue/60"
                       >
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-letrents-mist text-letrents-blue dark:bg-white/10 dark:text-letrents-teal">
-                          <Icon className="h-4 w-4" />
+                          {loading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Icon className="h-4 w-4" />
+                          )}
                         </span>
-                        <span className="text-[13px] font-medium leading-snug text-slate-700 dark:text-slate-200">{p}</span>
+                        <span>
+                          <span className="block text-[13px] font-bold text-slate-800 dark:text-slate-100">
+                            {scenario.label}
+                          </span>
+                          <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-slate-500 dark:text-slate-400">
+                            {scenario.text}
+                          </span>
+                        </span>
                       </motion.button>
                     );
                   })}
                 </div>
+                <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
+                  Tip: attach your own damage photo or tap the mic to dictate a complaint.
+                </p>
                 {status && !status.metaConfigured && (
                   <p className="mt-4 text-xs text-amber-700 dark:text-amber-400">
                     Running on the local fallback engine — add <code className="font-mono">META_API_KEY</code> to
