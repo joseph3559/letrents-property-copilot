@@ -61,6 +61,8 @@ Live at [copilot.letrents.com](https://copilot.letrents.com).
 - Maintenance request creation through validated, authorized tools
 - Staff recommendation ranked by skill match and availability
 - Tenant reply drafting (draft only — sending requires approval)
+- Photo complaints: Meta vision damage analysis + SAM 3.1 segmentation overlays
+- Voice-note complaints via Muse Voice transcription (property-biased keywords)
 - Human approval workflow (approve/reject with confirmation dialogs, review checklist, and audit notes)
 - Property intelligence questions grounded in real records
 - Audit/activity history for every action
@@ -76,13 +78,20 @@ verified live with `muse-spark-1.3`.
 | ------------------ | ---------------------------------------------- |
 | `META_API_BASE_URL`| `https://api.meta.ai/v1`                       |
 | `META_MODEL`       | `muse-spark-1.3`                               |
-| `META_TIMEOUT_MS`  | `30000`                                        |
+| `META_TIMEOUT_MS`  | `90000`                                        |
 
 - The agent uses Meta for intent classification, structured complaint
   extraction, and tenant-reply drafting (`response_format: json_object`,
   temperature 0.2, zod-validated with fence-tolerant JSON parsing).
 - All data access runs through server-side tools — the model never touches the
   database and never decides permissions.
+- **Vision + SAM 3.1:** attached photos are analyzed by Muse Spark (damage,
+  symptoms, visible unit numbers) and grounded by SAM 3.1 segmentation, whose
+  regions render as overlays on the photo. Misses are reported honestly in the
+  agent trail instead of guessed.
+- **Muse Voice:** voice notes are transcribed with `muse-voice-transcribe-1.0`
+  (property names as recognition keywords), then run through the same
+  complaint workflow as typed text.
 - Timeouts, rate limits (429), auth failures, and empty responses are handled
   with user-friendly errors; mid-turn Meta failures fall back to the labeled
   local engine so the demo never crashes.
@@ -100,7 +109,7 @@ npm run verify:meta
 > passes (`muse-spark-1.3`, ~3s), and a full complaint → analysis → approval →
 > persisted record cycle was executed against the live API. Note: Muse Spark is
 > a reasoning model (~1.5k reasoning tokens per extraction), so agent calls use
-> a 4000-token budget. The full workflow is also covered by 28 automated tests
+> a 4000-token budget. The full workflow is also covered by 58 automated tests
 > on the local engine (see Testing).
 
 ## Architecture
@@ -113,7 +122,7 @@ CopilotAgent (sense → plan → act → verify, bounded tool iterations)
   │  structured JSON via AIProvider (Meta primary, local fallback)
   │  deterministic safety overrides
   ▼
-Tool registry (13 tools: search_properties, get_unit_details,
+Tool registry (15 tools: search_properties, get_unit_details,
   get_maintenance_history, create_maintenance_request, recommend_staff, …)
   │  validated I/O, org isolation, role checks, audit logging
   ▼
@@ -129,7 +138,7 @@ implements the same interface against LETRENTS services and stays private.
 
 - Next.js 15 (App Router) + React 19 + TypeScript (strict)
 - Tailwind CSS 3 (LETRENTS palette: navy `#011C47`, blue `#0264FD`, teal `#23A2C7`)
-- Zod validation, Vitest tests, JSON-file demo persistence
+- Zod validation, Vitest tests, JSON-file demo persistence (Vercel KV in serverless production)
 - Meta Model API (Muse Spark) via `fetch` (no SDK dependency)
 
 ## Setup
@@ -149,7 +158,7 @@ npm run dev           # open http://localhost:3100
 Other commands:
 
 ```bash
-npm test        # 27 tests (agent, adapter, safety, schemas)
+npm test        # 58 tests (agent, adapter, safety, schemas, sam, store)
 npm run build   # production build
 npm start       # serve production build on :3100
 npm run type-check
@@ -162,18 +171,21 @@ npm run type-check
 | `META_API_KEY`        | Yes*     | Meta Model API key (ai.developer.meta.com) |
 | `META_API_BASE_URL`   | No       | Compat endpoint (default api.meta.ai/v1)   |
 | `META_MODEL`          | No       | Model id (default muse-spark-1.3)          |
-| `META_TIMEOUT_MS`     | No       | Provider timeout (default 30000)           |
-| `AGENT_MAX_ITERATIONS`| No       | Tool-call bound per turn (default 8)       |
+| `META_TIMEOUT_MS`     | No       | Provider timeout (default 90000)           |
+| `AGENT_MAX_ITERATIONS`| No       | Tool-call bound per turn (default 12)      |
 | `PORT`                | No       | Server port (default 3100)                 |
 | `DEMO_DATA_DIR`       | No       | Demo persistence dir (default `.data`)     |
 | `DEMO_ORG_ID`         | No       | Demo organization id                       |
 | `DEMO_USER_ID`        | No       | Demo manager user id                       |
+| `KV_REST_API_URL`     | No†      | Shared store for serverless (Vercel KV)    |
+| `KV_REST_API_TOKEN`   | No†      | Shared store token (Vercel KV)             |
 
 \* Required for Meta AI inference; without it the app runs on the labeled local fallback engine.
+† Required in serverless production so all instances share one state; local dev uses JSON files.
 
 ## Demo (3 minutes)
 
-1. **Open** `http://localhost:3100`. Note the engine badge (top right).
+1. **Open** `http://localhost:3100` (or the live [copilot.letrents.com](https://copilot.letrents.com)). Note the engine badge (top right).
 2. **Complaint** — click the first demo scenario or type:
    “There is a leaking pipe in B201. Water is spreading across the kitchen floor.”
 3. **Analysis** — show the category/urgency card, property + unit + tenant
@@ -187,7 +199,9 @@ npm run type-check
 7. **Safety** — try “There are sparks coming from the electrical panel in C301.”
    to show the emergency escalation.
 
-Reset the demo anytime by deleting the `.data/` directory and reloading.
+Reset the demo anytime with the **Reset demo data** button in the sidebar
+(or `POST /api/copilot/reset`). The live deployment runs at
+[copilot.letrents.com](https://copilot.letrents.com).
 
 Full scenario checklist (10 scenarios incl. duplicates, rejection, ambiguous
 property, unauthorized access, API failure) is covered in `tests/` and
@@ -214,5 +228,6 @@ data is included in this repository.
 ## Project status
 
 P0 complete: Meta provider + fallback, chat, lookup, understanding, history,
-creation, approvals, demo data, end-to-end demo, README, tests. Deferred (P2):
-SAM 3.1 segmentation, WhatsApp sending (drafts only), advanced analytics.
+creation, approvals, demo data, end-to-end demo, README, tests, SAM 3.1
+segmentation, voice transcription. Deferred (P2): WhatsApp sending (drafts
+only), advanced analytics.
