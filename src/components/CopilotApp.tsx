@@ -16,6 +16,7 @@ import {
   MessageSquarePlus,
   PanelRight,
   RotateCcw,
+  Search,
   SendHorizontal,
   ShieldAlert,
   Sparkles,
@@ -37,17 +38,113 @@ import {
 } from './api';
 import { ApprovalCard, TurnCards } from './ResultCards';
 import StepTimeline from './StepTimeline';
+import ThemeToggle from './ThemeToggle';
 import Typewriter from './Typewriter';
 import VoiceRecorder from './VoiceRecorder';
 
 const PROMPT_ICONS = [Droplets, ShieldAlert, Zap, BarChart3, Waves];
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diffMs) || diffMs < 0) return 'just now';
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function isToday(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+function ConversationGroups({
+  conversations,
+  query,
+  activeId,
+  onOpen,
+}: {
+  conversations: ConversationSummary[];
+  query: string;
+  activeId: string | undefined;
+  onOpen: (id: string) => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? conversations.filter((c) => (c.title || 'Untitled').toLowerCase().includes(q))
+    : conversations;
+  if (filtered.length === 0) {
+    return (
+      <div className="px-1 text-xs text-slate-400">
+        {conversations.length === 0 ? 'No conversations yet.' : 'No matches.'}
+      </div>
+    );
+  }
+  const groups: Array<{ label: string | null; items: ConversationSummary[] }> = q
+    ? [{ label: null, items: filtered }]
+    : [
+        { label: 'Today', items: filtered.filter((c) => isToday(c.updatedAt)) },
+        { label: 'Earlier', items: filtered.filter((c) => !isToday(c.updatedAt)) },
+      ].filter((g) => g.items.length > 0);
+  return (
+    <div className="space-y-3">
+      {groups.map((group) => (
+        <div key={group.label ?? 'results'}>
+          {group.label && (
+            <div className="mb-1 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              {group.label}
+            </div>
+          )}
+          <div className="space-y-1">
+            {group.items.map((c, i) => {
+              const active = c.id === activeId;
+              return (
+                <motion.button
+                  key={c.id}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: Math.min(i * 0.04, 0.3) }}
+                  onClick={() => onOpen(c.id)}
+                  className={`relative w-full rounded-lg px-2.5 py-2 text-left text-xs transition ${
+                    active
+                      ? 'bg-white/15 font-semibold text-white'
+                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="convo-active-bar"
+                      className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-full bg-letrents-teal"
+                    />
+                  )}
+                  <div className="truncate pr-1">{c.title || 'Untitled'}</div>
+                  <div className="mt-0.5 flex items-center justify-between text-[10px] text-slate-400">
+                    <span>
+                      {c.messageCount} message{c.messageCount === 1 ? '' : 's'}
+                    </span>
+                    <span>{relativeTime(c.updatedAt)}</span>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function ThinkingIndicator() {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm"
+      className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
     >
       <span className="flex gap-1">
         {[0, 1, 2].map((i) => (
@@ -59,7 +156,7 @@ function ThinkingIndicator() {
           />
         ))}
       </span>
-      <span className="text-sm font-medium text-slate-600">
+      <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
         Copilot is analyzing records and preparing actions…
       </span>
     </motion.div>
@@ -88,6 +185,7 @@ export default function CopilotApp() {
   const [error, setError] = useState<string | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
   const [mobileInspector, setMobileInspector] = useState(false);
+  const [convoQuery, setConvoQuery] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -259,6 +357,20 @@ export default function CopilotApp() {
     }
   }, [refreshSide]);
 
+  // ⌘K / Ctrl+K starts a new conversation (unless typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        const tag = (document.activeElement?.tagName ?? '').toLowerCase();
+        if (tag === 'textarea' || tag === 'input') return;
+        e.preventDefault();
+        newChat();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [newChat]);
+
   const lastAssistantId =
     turn && freshTurn
       ? [...turn.conversation.messages].reverse().find((m) => m.role === 'assistant')?.id
@@ -281,58 +393,50 @@ export default function CopilotApp() {
         <motion.button
           whileTap={{ scale: 0.97 }}
           onClick={newChat}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-letrents-blue px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-blue-500"
+          className="group flex w-full items-center justify-center gap-2 rounded-lg bg-letrents-blue px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-blue-500"
         >
           <MessageSquarePlus className="h-4 w-4" />
           New conversation
+          <kbd className="hidden rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold text-white/90 group-hover:bg-white/25 lg:inline">
+            ⌘K
+          </kbd>
         </motion.button>
       </div>
-      <div className="px-3 pb-2 pt-4">
-        <div className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-widest text-slate-300/70">
-          Try a scenario
-        </div>
-        <div className="space-y-1">
-          {DEMO_PROMPTS.map((p, i) => {
-            const Icon = PROMPT_ICONS[i % PROMPT_ICONS.length];
-            return (
-              <button
-                key={p}
-                onClick={() => send(p)}
-                disabled={sending}
-                className="group flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-left text-xs leading-snug text-slate-100 transition hover:border-letrents-teal/60 hover:bg-white/10 disabled:opacity-50"
-              >
-                <Icon className="h-4 w-4 shrink-0 text-letrents-teal" />
-                <span className="line-clamp-2">{p}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div className="border-t border-white/10 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-300/70">
-        Conversations
-      </div>
-      <div className="panel-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-        <div className="space-y-1">
-          {conversations.map((c) => (
+      <div className="px-3 pt-3">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 transition focus-within:border-letrents-teal/60">
+          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <input
+            value={convoQuery}
+            onChange={(e) => setConvoQuery(e.target.value)}
+            placeholder="Search conversations…"
+            className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+          />
+          {convoQuery && (
             <button
-              key={c.id}
-              onClick={() => openConversation(c.id)}
-              className={`w-full rounded-lg px-2.5 py-2 text-left text-xs transition ${
-                c.id === activeId
-                  ? 'bg-white/15 font-semibold text-white'
-                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
-              }`}
+              onClick={() => setConvoQuery('')}
+              className="text-slate-400 hover:text-white"
+              aria-label="Clear search"
             >
-              <div className="truncate">{c.title || 'Untitled'}</div>
-              <div className="text-[10px] text-slate-400">
-                {c.messageCount} message{c.messageCount === 1 ? '' : 's'}
-              </div>
+              <X className="h-3.5 w-3.5" />
             </button>
-          ))}
-          {conversations.length === 0 && (
-            <div className="px-1 text-xs text-slate-400">No conversations yet.</div>
           )}
         </div>
+      </div>
+      <div className="flex items-center justify-between px-4 pb-1 pt-3">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300/70">
+          Conversations
+        </span>
+        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+          {conversations.length}
+        </span>
+      </div>
+      <div className="panel-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <ConversationGroups
+          conversations={conversations}
+          query={convoQuery}
+          activeId={activeId}
+          onOpen={(id) => void openConversation(id)}
+        />
       </div>
       <div className="border-t border-white/10 px-3 py-3">
         <div className="flex items-center gap-2.5 rounded-lg bg-white/5 px-2.5 py-2">
@@ -346,6 +450,23 @@ export default function CopilotApp() {
             </div>
             <div className="truncate text-[10px] text-slate-300/80">Sunrise Org · manager role</div>
           </div>
+        </div>
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span
+              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${
+                status?.engine === 'meta' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span
+              className={`relative inline-flex h-2 w-2 rounded-full ${
+                status?.engine === 'meta' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+          </span>
+          <span className="truncate text-[11px] font-semibold text-slate-200" title={status?.model ?? ''}>
+            {status ? (status.engine === 'meta' ? `Meta AI · ${status.model}` : 'Local fallback') : 'Connecting…'}
+          </span>
         </div>
         <button
           onClick={() => void resetDemo()}
@@ -382,8 +503,8 @@ export default function CopilotApp() {
         : records.filter((r) => ['resolved', 'rejected', 'cancelled'].includes(r.status));
 
   const inspector = (
-    <div className="flex h-full flex-col bg-white">
-      <div className="flex border-b border-slate-200">
+    <div className="flex h-full flex-col bg-white dark:bg-letrents-night">
+      <div className="flex border-b border-slate-200 dark:border-white/10">
         {(
           [
             { id: 'records', label: `Tickets (${openRecords.length})`, icon: ClipboardList },
@@ -396,8 +517,8 @@ export default function CopilotApp() {
             onClick={() => setRightTab(tab.id)}
             className={`flex flex-1 items-center justify-center gap-1 px-2 py-2.5 text-[11px] font-bold uppercase tracking-wide transition ${
               rightTab === tab.id
-                ? 'border-b-2 border-letrents-blue text-letrents-navy'
-                : 'text-slate-400 hover:text-slate-600'
+                ? 'border-b-2 border-letrents-blue text-letrents-navy dark:text-white'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
             }`}
           >
             <tab.icon className="h-3.5 w-3.5" />
@@ -415,8 +536,8 @@ export default function CopilotApp() {
                   onClick={() => setRecordFilter(f)}
                   className={`rounded-full px-2.5 py-1 text-[11px] font-bold capitalize transition ${
                     recordFilter === f
-                      ? 'bg-letrents-navy text-white'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      ? 'bg-letrents-blue text-white'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15'
                   }`}
                 >
                   {f}
@@ -432,10 +553,10 @@ export default function CopilotApp() {
                     layout
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm"
+                    className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-slate-400">{r.reference}</span>
+                      <span className="font-mono text-slate-400 dark:text-slate-500">{r.reference}</span>
                       <span
                         className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ${
                           r.status === 'resolved'
@@ -453,12 +574,12 @@ export default function CopilotApp() {
                         {r.status.replace(/_/g, ' ')}
                       </span>
                     </div>
-                    <div className="mt-1 font-semibold text-slate-800">{r.title}</div>
-                    <div className="text-slate-500">
+                    <div className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{r.title}</div>
+                    <div className="text-slate-500 dark:text-slate-300">
                       {propertyName(r.propertyId)}
                       {unit ? ` · Unit ${unit}` : ' · common area'}
                     </div>
-                    <div className="text-slate-400">
+                    <div className="text-slate-400 dark:text-slate-500">
                       {r.category.replace(/_/g, ' ')} · {r.urgency}
                     </div>
                   </motion.div>
@@ -466,12 +587,12 @@ export default function CopilotApp() {
               })}
             </AnimatePresence>
             {filteredRecords.length === 0 && (
-              <div className="text-xs text-slate-400">No tickets match this filter.</div>
+              <div className="text-xs text-slate-400 dark:text-slate-500">No tickets match this filter.</div>
             )}
           </div>
         ) : rightTab === 'portfolio' ? (
           <div className="space-y-2">
-            <div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-500">
+            <div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-500 dark:bg-white/5 dark:text-slate-400">
               Demo dataset · {portfolio.reduce((n, p) => n + p.totalUnits, 0)} units ·{' '}
               {portfolio.reduce((n, p) => n + p.units.filter((u) => u.tenant).length, 0)} tenants
             </div>
@@ -481,7 +602,7 @@ export default function CopilotApp() {
               return (
                 <div
                   key={entry.property.id}
-                  className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                  className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
                 >
                   <button
                     onClick={() => setExpandedProperty(expanded ? null : entry.property.id)}
@@ -489,10 +610,10 @@ export default function CopilotApp() {
                   >
                     <Building2 className="h-4 w-4 shrink-0 text-letrents-blue" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-bold text-slate-800">
+                      <div className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">
                         {entry.property.name}
                       </div>
-                      <div className="truncate text-[11px] text-slate-500">
+                      <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                         {entry.property.landlord} · {entry.occupiedUnits}/{entry.totalUnits} occupied ·{' '}
                         {openCount} open
                       </div>
@@ -507,13 +628,13 @@ export default function CopilotApp() {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden border-t border-slate-100"
+                        className="overflow-hidden border-t border-slate-100 dark:border-white/5"
                       >
-                        <ul className="divide-y divide-slate-50">
+                        <ul className="divide-y divide-slate-50 dark:divide-white/5">
                           {entry.units.map((u) => (
                             <li key={u.id} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                              <span className="font-semibold text-slate-700">Unit {u.unitNumber}</span>
-                              <span className="truncate text-slate-500">
+                              <span className="font-semibold text-slate-700 dark:text-slate-200">Unit {u.unitNumber}</span>
+                              <span className="truncate text-slate-500 dark:text-slate-400">
                                 {u.tenant ? u.tenant.fullName : <em>vacant</em>}
                               </span>
                             </li>
@@ -525,7 +646,7 @@ export default function CopilotApp() {
                 </div>
               );
             })}
-            {portfolio.length === 0 && <div className="text-xs text-slate-400">No properties.</div>}
+            {portfolio.length === 0 && <div className="text-xs text-slate-400 dark:text-slate-500">No properties.</div>}
           </div>
         ) : (
           <div className="space-y-2">
@@ -536,17 +657,17 @@ export default function CopilotApp() {
                   layout
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm"
+                  className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-sm dark:border-white/10 dark:bg-letrents-nightcard"
                 >
-                  <div className="font-mono text-[11px] text-letrents-blue">{a.action}</div>
-                  <div className="mt-0.5 text-slate-700">{a.detail}</div>
-                  <div className="mt-0.5 text-[10px] text-slate-400">
+                  <div className="font-mono text-[11px] text-letrents-blue dark:text-letrents-teal">{a.action}</div>
+                  <div className="mt-0.5 text-slate-700 dark:text-slate-200">{a.detail}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
                     {new Date(a.createdAt).toLocaleString()}
                   </div>
                 </motion.div>
               ))}
             </AnimatePresence>
-            {activity.length === 0 && <div className="text-xs text-slate-400">No activity yet.</div>}
+            {activity.length === 0 && <div className="text-xs text-slate-400 dark:text-slate-500">No activity yet.</div>}
           </div>
         )}
       </div>
@@ -554,7 +675,7 @@ export default function CopilotApp() {
   );
 
   return (
-    <div className="flex h-screen flex-col bg-letrents-mist">
+    <div className="flex h-screen flex-col bg-letrents-mist dark:bg-letrents-night">
       <AnimatePresence>
         {error && (
           <motion.div
@@ -577,19 +698,19 @@ export default function CopilotApp() {
         <aside className="hidden w-72 shrink-0 md:block">{sidebar}</aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="z-10 flex items-center gap-2 border-b border-slate-200/80 bg-white/85 px-3 py-2.5 backdrop-blur">
+          <header className="z-10 flex items-center gap-2 border-b border-slate-200/80 bg-white/85 px-3 py-2.5 backdrop-blur dark:border-white/10 dark:bg-letrents-night/85">
             <button
               onClick={() => setMobileNav(true)}
-              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10 md:hidden"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-bold text-slate-900">
+              <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
                 {turn?.conversation.title || 'New conversation'}
               </div>
-              <div className="hidden text-[11px] text-slate-500 sm:block">
+              <div className="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block">
                 Sunrise Apartments · Acacia Heights · Nairobi
               </div>
             </div>
@@ -606,16 +727,17 @@ export default function CopilotApp() {
                   <Sparkles className="h-3 w-3" />
                   {status.engine === 'meta' ? `Meta AI · ${status.model}` : 'Local fallback'}
                 </span>
-                <span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 sm:inline">
+                <span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300 sm:inline">
                   {status.pendingApprovals} pending
                 </span>
               </div>
             ) : (
               <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
             )}
+            <ThemeToggle />
             <button
               onClick={() => setMobileInspector(true)}
-              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
+              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10 lg:hidden"
               aria-label="Open details panel"
             >
               <PanelRight className="h-5 w-5" />
@@ -638,10 +760,10 @@ export default function CopilotApp() {
                 >
                   <Building2 className="h-7 w-7" />
                 </motion.div>
-                <h1 className="mt-4 text-2xl font-black tracking-tight text-letrents-navy sm:text-3xl">
+                <h1 className="mt-4 text-2xl font-black tracking-tight text-letrents-navy dark:text-white sm:text-3xl">
                   From complaints to action.
                 </h1>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600">
+                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                   Describe a maintenance issue or ask about your portfolio. The Copilot pulls real
                   records, analyzes the problem, and prepares approvals — you stay in control.
                 </p>
@@ -658,18 +780,18 @@ export default function CopilotApp() {
                         whileTap={{ scale: 0.98 }}
                         onClick={() => send(p)}
                         disabled={sending}
-                        className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-letrents-blue/50 hover:shadow disabled:opacity-50"
+                        className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-letrents-blue/50 hover:shadow disabled:opacity-50 dark:border-white/10 dark:bg-letrents-nightcard dark:hover:border-letrents-blue/60"
                       >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-letrents-mist text-letrents-blue">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-letrents-mist text-letrents-blue dark:bg-white/10 dark:text-letrents-teal">
                           <Icon className="h-4 w-4" />
                         </span>
-                        <span className="text-[13px] font-medium leading-snug text-slate-700">{p}</span>
+                        <span className="text-[13px] font-medium leading-snug text-slate-700 dark:text-slate-200">{p}</span>
                       </motion.button>
                     );
                   })}
                 </div>
                 {status && !status.metaConfigured && (
-                  <p className="mt-4 text-xs text-amber-700">
+                  <p className="mt-4 text-xs text-amber-700 dark:text-amber-400">
                     Running on the local fallback engine — add <code className="font-mono">META_API_KEY</code> to
                     use Meta AI.
                   </p>
@@ -688,7 +810,7 @@ export default function CopilotApp() {
                         animate={{ opacity: 1, y: 0 }}
                         className="flex justify-end"
                       >
-                        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-letrents-navy px-4 py-2.5 text-sm leading-relaxed text-white shadow">
+                        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-letrents-navy px-4 py-2.5 text-sm leading-relaxed text-white shadow dark:bg-letrents-blue">
                           {m.content}
                         </div>
                       </motion.div>
@@ -697,7 +819,7 @@ export default function CopilotApp() {
                         key={m.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="whitespace-pre-wrap rounded-2xl rounded-bl-md border border-slate-200/80 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 shadow-sm"
+                        className="whitespace-pre-wrap rounded-2xl rounded-bl-md border border-slate-200/80 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 shadow-sm dark:border-white/10 dark:bg-letrents-nightcard dark:text-slate-100"
                       >
                         {m.id === lastAssistantId ? (
                           <Typewriter text={m.content} />
@@ -738,7 +860,7 @@ export default function CopilotApp() {
             )}
           </div>
 
-          <div className="border-t border-slate-200/80 bg-white/90 px-3 py-3 backdrop-blur">
+          <div className="border-t border-slate-200/80 bg-white/90 px-3 py-3 backdrop-blur dark:border-white/10 dark:bg-letrents-night/90">
             <div className="mx-auto max-w-3xl">
               <AnimatePresence>
                 {imageName && (
@@ -763,7 +885,7 @@ export default function CopilotApp() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              <div className="relative flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-letrents-blue focus-within:ring-2 focus-within:ring-letrents-blue/20">
+              <div className="relative flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition focus-within:border-letrents-blue focus-within:ring-2 focus-within:ring-letrents-blue/20 dark:border-white/15 dark:bg-letrents-nightcard">
                 <input
                   ref={fileRef}
                   type="file"
@@ -773,7 +895,7 @@ export default function CopilotApp() {
                 />
                 <button
                   onClick={() => fileRef.current?.click()}
-                  className="rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-letrents-navy"
+                  className="rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-letrents-navy dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
                   title="Attach a maintenance photo (optional)"
                 >
                   <ImagePlus className="h-5 w-5" />
@@ -794,7 +916,7 @@ export default function CopilotApp() {
                   }}
                   rows={2}
                   placeholder="Describe a complaint or ask about your properties…"
-                  className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                  className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
                 <motion.button
                   whileTap={{ scale: 0.92 }}
@@ -810,14 +932,14 @@ export default function CopilotApp() {
                   )}
                 </motion.button>
               </div>
-              <div className="mt-1.5 text-center text-[11px] text-slate-400">
+              <div className="mt-1.5 text-center text-[11px] text-slate-400 dark:text-slate-500">
                 Enter to send · Shift+Enter for a new line · Photos help the AI assess damage
               </div>
             </div>
           </div>
         </main>
 
-        <aside className="hidden w-80 shrink-0 border-l border-slate-200/80 lg:block">{inspector}</aside>
+        <aside className="hidden w-80 shrink-0 border-l border-slate-200/80 dark:border-white/10 lg:block">{inspector}</aside>
       </div>
 
       <AnimatePresence>

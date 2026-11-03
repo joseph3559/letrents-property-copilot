@@ -36,12 +36,12 @@ function iconFor(event: string) {
 function toneFor(event: string): string {
   const e = event.toLowerCase();
   if (e.includes('safety') || e.includes('escalation') || e.includes('duplicate')) {
-    return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300';
   }
   if (e.includes('fallback') || e.includes('unavailable')) {
-    return 'border-slate-200 bg-slate-100 text-slate-500';
+    return 'border-slate-200 bg-slate-100 text-slate-500 dark:border-white/10 dark:bg-white/10 dark:text-slate-400';
   }
-  return 'border-emerald-200 bg-emerald-50 text-emerald-600';
+  return 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300';
 }
 
 /** Animated agent step timeline — turns backend events into visible reasoning. */
@@ -49,7 +49,7 @@ export default function StepTimeline({ events }: { events: string[] }) {
   const steps = useMemo(() => events.slice(0, 12), [events]);
   if (steps.length === 0) return null;
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white/70 p-3 shadow-sm backdrop-blur">
+    <div className="rounded-xl border border-slate-200/80 bg-white/70 p-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
       <div className="mb-2 flex items-center gap-2 px-1">
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -78,7 +78,7 @@ export default function StepTimeline({ events }: { events: string[] }) {
               >
                 <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
               </motion.span>
-              <span className="min-w-0 flex-1 truncate text-[13px] text-slate-600" title={event}>
+              <span className="min-w-0 flex-1 truncate text-[13px] text-slate-600 dark:text-slate-300" title={event}>
                 {event}
               </span>
             </motion.li>

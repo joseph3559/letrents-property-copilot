@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -10,6 +11,8 @@ module.exports = {
           teal: '#23A2C7',
           mist: '#F5F7FA',
           ink: '#111827',
+          night: '#070F24',
+          nightcard: '#0C1730',
         },
       },
       fontFamily: {

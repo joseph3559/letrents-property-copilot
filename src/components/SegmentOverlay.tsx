@@ -23,10 +23,10 @@ export default function SegmentOverlay({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.12, type: 'spring', stiffness: 160, damping: 22 }}
-      className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(1,28,71,0.08)]"
+      className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(1,28,71,0.08)] dark:border-white/10 dark:bg-letrents-nightcard"
     >
-      <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
-        <ScanSearch className="h-4 w-4 text-letrents-blue" />
+      <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 dark:border-white/5 dark:bg-white/5">
+        <ScanSearch className="h-4 w-4 text-letrents-blue dark:text-letrents-teal" />
         <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
           Damage regions · SAM 3.1 ({segments.length})
         </span>
