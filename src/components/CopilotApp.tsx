@@ -796,11 +796,8 @@ export default function CopilotApp() {
                 <h1 className="mt-4 text-2xl font-black tracking-tight text-letrents-navy dark:text-white sm:text-3xl">
                   From complaints to action.
                 </h1>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                  Forward a tenant message, speak a complaint, or drop in a damage photo. The
-                  Copilot reads your property records, analyzes the issue, and lines up the
-                  ticket, the staff pick, and the tenant reply — nothing moves without your
-                  approval.
+                <p className="mx-auto mt-2 max-w-md text-[15px] leading-relaxed text-slate-600 dark:text-slate-300">
+                  Describe it, speak it, or photograph it. You approve — it executes.
                 </p>
                 <div className="mt-6 grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
                   {DEMO_PROMPTS.map((scenario, i) => {
@@ -837,8 +834,8 @@ export default function CopilotApp() {
                     );
                   })}
                 </div>
-                <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
-                  Tip: attach your own damage photo or tap the mic to dictate a complaint.
+                <p className="mt-4 text-xs tracking-wide text-slate-400 dark:text-slate-500">
+                  Powered by Meta AI · Muse Spark · SAM 3.1 · Muse Voice
                 </p>
                 {status && !status.metaConfigured && (
                   <p className="mt-4 text-xs text-amber-700 dark:text-amber-400">
