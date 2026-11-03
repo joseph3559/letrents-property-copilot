@@ -1,5 +1,8 @@
 // Server configuration. All secrets stay server-side; never import this in client code.
 
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 export interface CopilotConfig {
   metaApiKey: string | null;
   metaBaseUrl: string;
@@ -30,7 +33,10 @@ export function loadConfig(): CopilotConfig {
     agentMaxIterations: iterationsRaw
       ? Math.min(Math.max(Number.parseInt(iterationsRaw, 10) || 12, 1), 20)
       : 12,
-    demoDataDir: readEnv('DEMO_DATA_DIR') ?? '.data',
+    // Serverless filesystems are read-only except the temp dir: persist per-instance there.
+    demoDataDir:
+      readEnv('DEMO_DATA_DIR') ??
+      (process.env.VERCEL ? path.join(tmpdir(), 'letrents-copilot-data') : '.data'),
     demoOrgId: readEnv('DEMO_ORG_ID') ?? 'org-sunrise-demo',
     demoUserId: readEnv('DEMO_USER_ID') ?? 'user-demo-manager',
     nodeEnv: readEnv('NODE_ENV') ?? 'development',

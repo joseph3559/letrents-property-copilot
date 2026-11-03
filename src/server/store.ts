@@ -59,6 +59,9 @@ export class DemoStore {
   private dataDir: string;
   private cache: DemoDatabase | null = null;
   private writeChain: Promise<void> = Promise.resolve();
+  /** False once the disk proves unwritable (read-only serverless FS): memory-only mode. */
+  private diskWritable: boolean | null = null;
+  private warnedMemoryMode = false;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -68,9 +71,33 @@ export class DemoStore {
     return path.join(this.dataDir, FILE_NAMES[key]);
   }
 
+  private warnMemoryMode(reason: string): void {
+    if (this.warnedMemoryMode) return;
+    this.warnedMemoryMode = true;
+    console.warn(`[demo-store] ${reason}; continuing in memory-only mode`);
+  }
+
+  private async persist(key: keyof DemoDatabase, value: unknown): Promise<void> {
+    if (this.diskWritable === false) return;
+    try {
+      await writeJsonFile(this.filePath(key), value);
+      this.diskWritable = true;
+    } catch {
+      this.warnMemoryMode(`disk at ${this.dataDir} is not writable`);
+      this.diskWritable = false;
+    }
+  }
+
   async load(): Promise<DemoDatabase> {
     if (this.cache) return this.cache;
-    await fs.mkdir(this.dataDir, { recursive: true });
+    try {
+      await fs.mkdir(this.dataDir, { recursive: true });
+    } catch {
+      this.warnMemoryMode(`cannot create ${this.dataDir}`);
+      this.diskWritable = false;
+      this.cache = defaultDatabase();
+      return this.cache;
+    }
     const fresh = defaultDatabase();
     const db: DemoDatabase = { ...fresh };
     for (const key of Object.keys(FILE_NAMES) as Array<keyof DemoDatabase>) {
@@ -78,7 +105,7 @@ export class DemoStore {
       if (stored !== null && stored !== undefined) {
         (db as unknown as Record<string, unknown>)[key] = stored;
       } else {
-        await writeJsonFile(this.filePath(key), db[key]);
+        await this.persist(key, db[key]);
       }
     }
     this.cache = db;
@@ -92,7 +119,7 @@ export class DemoStore {
       const db = await this.load();
       result = mutator(db);
       for (const key of Object.keys(FILE_NAMES) as Array<keyof DemoDatabase>) {
-        await writeJsonFile(this.filePath(key), db[key]);
+        await this.persist(key, db[key]);
       }
     };
     this.writeChain = this.writeChain.then(run, run);
