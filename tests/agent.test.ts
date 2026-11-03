@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DemoStore } from '../src/server/store';
 import { DemoAdapter } from '../src/server/adapters/demo-adapter';
-import { CopilotAgent, buildExtractionPayload } from '../src/server/agent/loop';
+import {
+  cacheConversationImage,
+  conversationImageCache,
+  CopilotAgent,
+  buildExtractionPayload,
+  mergeAnalyses,
+} from '../src/server/agent/loop';
 import { UserContext } from '../src/server/types';
 
 const ctx: UserContext = { userId: 'user-demo-manager', orgId: 'org-sunrise-demo', role: 'demo_manager' };
@@ -139,6 +145,96 @@ describe('CopilotAgent end-to-end (local engine)', () => {
       { id: 'prop-sunrise', label: 'Sunrise Apartments' },
       { id: 'prop-acacia', label: 'Acacia Heights' },
     ]);
+  });
+
+  it('Photo complaint reuses the cached photo on clarification follow-up', async () => {
+    const { agent, store } = makeAgent();
+    const fakeImage = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined, fakeImage);
+    expect(first.needsClarification).not.toBeNull();
+    // Photo-informed analysis persisted with the pending complaint.
+    const db = await store.load();
+    const convo = db.conversations.find((c) => c.id === first.conversation.id);
+    expect(convo?.pendingComplaint).toMatch(/water pump/);
+    expect(convo?.pendingAnalysis?.category).toBe(first.analysis?.category);
+    // Follow-up without re-attaching the photo still completes the complaint.
+    const second = await agent.handleMessage(ctx, 'Acacia', first.conversation.id);
+    expect(second.needsClarification).toBeNull();
+    expect(second.property?.name).toBe('Acacia Heights');
+    expect(second.analysis?.category).toBe(first.analysis?.category);
+    expect(second.approval?.status).toBe('pending');
+    expect(second.events).not.toContain('Photo-informed analysis from your earlier message preserved');
+    // Pending state fully cleared.
+    const db2 = await store.load();
+    const convo2 = db2.conversations.find((c) => c.id === first.conversation.id);
+    expect(convo2?.pendingComplaint).toBeNull();
+    expect(convo2?.pendingAnalysis).toBeNull();
+  });
+
+  it('Clarification follow-up merges stored photo analysis when the image cache misses', async () => {
+    const { agent } = makeAgent();
+    const fakeImage = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined, fakeImage);
+    expect(first.needsClarification).not.toBeNull();
+    conversationImageCache.delete(first.conversation.id); // simulate restart/eviction
+    const second = await agent.handleMessage(ctx, 'Acacia', first.conversation.id);
+    expect(second.needsClarification).toBeNull();
+    expect(second.approval?.status).toBe('pending');
+    expect(second.events).toContain('Photo-informed analysis from your earlier message preserved');
+    expect(second.analysis?.category).toBe(first.analysis?.category);
+  });
+
+  it('Text-only clarification stores no prior analysis', async () => {
+    const { agent, store } = makeAgent();
+    const first = await agent.handleMessage(ctx, 'The water pump is not working.', undefined);
+    expect(first.needsClarification).not.toBeNull();
+    const db = await store.load();
+    const convo = db.conversations.find((c) => c.id === first.conversation.id);
+    expect(convo?.pendingComplaint).toMatch(/water pump/);
+    expect(convo?.pendingAnalysis ?? null).toBeNull();
+  });
+
+  it('mergeAnalyses keeps photo findings and takes the slot-answer location', () => {
+    const merged = mergeAnalyses(
+      {
+        isComplaint: true,
+        title: 'Ceiling water leak',
+        description: 'Photo shows water streaming from a cracked ceiling.',
+        category: 'plumbing',
+        urgency: 'high',
+        safetyRisk: null,
+        unitMention: null,
+        propertyMention: null,
+        symptoms: ['water streaming from ceiling'],
+        missingInfo: ['property name'],
+      },
+      {
+        isComplaint: true,
+        title: 'Unspecified issue',
+        description: 'Manager named a property.',
+        category: 'general',
+        urgency: 'normal',
+        safetyRisk: null,
+        unitMention: null,
+        propertyMention: 'Sunrise',
+        symptoms: [],
+        missingInfo: [],
+      }
+    );
+    expect(merged.category).toBe('plumbing');
+    expect(merged.urgency).toBe('high');
+    expect(merged.title).toBe('Ceiling water leak');
+    expect(merged.description).toMatch(/streaming/);
+    expect(merged.symptoms).toEqual(['water streaming from ceiling']);
+    expect(merged.propertyMention).toBe('Sunrise');
+  });
+
+  it('Conversation image cache evicts oldest entries past capacity', () => {
+    for (let i = 0; i < 12; i++) cacheConversationImage(`cap-${i}`, `data:image/jpeg;base64,${i}`);
+    expect(conversationImageCache.size).toBe(10);
+    expect(conversationImageCache.has('cap-0')).toBe(false);
+    expect(conversationImageCache.has('cap-11')).toBe(true);
+    for (let i = 0; i < 12; i++) conversationImageCache.delete(`cap-${i}`);
   });
 
   it('Multi-turn: unrelated follow-up clears pending state instead of hijacking', async () => {

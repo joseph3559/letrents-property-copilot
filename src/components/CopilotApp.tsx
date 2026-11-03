@@ -238,6 +238,7 @@ export default function CopilotApp() {
         const { conversation, approvals } = await api.conversation(id);
         setActiveId(id);
         setFreshTurn(false);
+        setLastImage(null);
         const lastAssistant = [...conversation.messages]
           .reverse()
           .find((m) => m.role === 'assistant');
@@ -282,7 +283,9 @@ export default function CopilotApp() {
         const result = await api.send(content, activeId, outgoingImage);
         setTurn(result);
         setFreshTurn(true);
-        setLastImage(outgoingImage ?? null);
+        // Keep the previous photo for text follow-ups: a clarification answer
+        // reuses the cached original server-side, and its SAM overlay needs it.
+        setLastImage(outgoingImage ?? lastImage);
         if (outgoingImage) {
           const lastUser = [...result.conversation.messages].reverse().find((m) => m.role === 'user');
           if (lastUser) {
@@ -300,7 +303,7 @@ export default function CopilotApp() {
         setSending(false);
       }
     },
-    [activeId, imageDataUrl, sending, refreshSide]
+    [activeId, imageDataUrl, lastImage, sending, refreshSide]
   );
 
   const [loadingScenario, setLoadingScenario] = useState<string | null>(null);

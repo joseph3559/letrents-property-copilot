@@ -145,6 +145,44 @@ export function buildExtractionPayload(content: string, hasImage: boolean): stri
   );
 }
 
+/**
+ * Bounded in-memory photo cache: conversation id → last attached photo.
+ * Photos are never written to the JSON store; this lets a clarification
+ * follow-up (which rarely re-attaches the photo) reuse the original image
+ * for vision analysis and SAM segmentation. Oldest entries evicted first.
+ */
+const MAX_CACHED_CONVERSATION_IMAGES = 10;
+export const conversationImageCache = new Map<string, string>();
+
+export function cacheConversationImage(conversationId: string, imageDataUrl: string): void {
+  conversationImageCache.delete(conversationId);
+  conversationImageCache.set(conversationId, imageDataUrl);
+  while (conversationImageCache.size > MAX_CACHED_CONVERSATION_IMAGES) {
+    const oldest = conversationImageCache.keys().next();
+    if (oldest.done) break;
+    conversationImageCache.delete(oldest.value);
+  }
+}
+
+/**
+ * Merge photo-informed fields from a prior analysis into a fresh text-only
+ * one. Location mentions always come from the fresh pass (the slot answer is
+ * new information); everything the photo taught us survives.
+ */
+export function mergeAnalyses(prior: ComplaintAnalysis, fresh: ComplaintAnalysis): ComplaintAnalysis {
+  return {
+    ...fresh,
+    title: prior.title,
+    description: prior.description,
+    category: prior.category,
+    urgency: prior.urgency,
+    safetyRisk: prior.safetyRisk ?? fresh.safetyRisk,
+    unitMention: fresh.unitMention ?? prior.unitMention,
+    propertyMention: fresh.propertyMention ?? prior.propertyMention,
+    symptoms: prior.symptoms.length > 0 ? prior.symptoms : fresh.symptoms,
+  };
+}
+
 export class CopilotAgent {
   private readonly local = new LocalProvider();
   private readonly tools: ToolRegistry;
@@ -227,6 +265,9 @@ export class CopilotAgent {
       return convo;
     });
 
+    // Cache attached photos (memory only, never persisted) for clarification follow-ups.
+    if (imageDataUrl) cacheConversationImage(conversation.id, imageDataUrl);
+
     // 2. Classify intent (with local fallback if Meta fails mid-turn).
     let activeProvider = provider;
     let activeEngine = engine;
@@ -255,13 +296,19 @@ export class CopilotAgent {
     // starting fresh. Anything else closes the pending state.
     if (conversation.pendingComplaint) {
       const pending = conversation.pendingComplaint;
+      const priorAnalysis = conversation.pendingAnalysis ?? null;
       await this.setPending(conversation.id, null);
       if (await this.looksLikeSlotAnswer(ctx, content)) {
         const combined =
           `Original complaint: ${pending}\nAdditional info from manager: ${content}`.slice(0, 2000);
         events.push('Continuing the pending complaint with your answer');
+        // The follow-up rarely re-attaches the photo: reuse the cached
+        // original for vision + SAM, else merge the stored photo-informed
+        // analysis into the fresh text-only pass.
+        const effectiveImage = imageDataUrl ?? conversationImageCache.get(conversation.id);
         return await this.handleComplaint(
-          ctx, conversation, combined, imageDataUrl, runWithFallback, events, getEngineState
+          ctx, conversation, combined, effectiveImage, runWithFallback, events, getEngineState,
+          effectiveImage ? null : priorAnalysis
         );
       }
       events.push('Previous clarification closed; handling as a new message');
@@ -336,10 +383,17 @@ export class CopilotAgent {
     );
   }
 
-  private async setPending(conversationId: string, complaint: string | null): Promise<void> {
+  private async setPending(
+    conversationId: string,
+    complaint: string | null,
+    analysis: ComplaintAnalysis | null = null
+  ): Promise<void> {
     await this.deps.store.update((db) => {
       const convo = db.conversations.find((c) => c.id === conversationId);
-      if (convo) convo.pendingComplaint = complaint;
+      if (convo) {
+        convo.pendingComplaint = complaint;
+        convo.pendingAnalysis = complaint ? analysis : null;
+      }
     });
   }
 
@@ -369,11 +423,12 @@ export class CopilotAgent {
     imageDataUrl: string | undefined,
     runWithFallback: <T>(fn: (p: AIProvider) => Promise<T>) => Promise<T>,
     events: string[],
-    getEngineState: () => { engine: 'meta' | 'local'; model: string }
+    getEngineState: () => { engine: 'meta' | 'local'; model: string },
+    priorAnalysis: ComplaintAnalysis | null = null
   ): Promise<AgentTurnResult> {
     const stated = (): { engine: 'meta' | 'local'; model: string } => getEngineState();
 
-    const analysis = await runWithFallback((p) =>
+    const fresh = await runWithFallback((p) =>
       completeJson(
         p,
         EXTRACT_SYSTEM,
@@ -382,6 +437,10 @@ export class CopilotAgent {
         imageDataUrl
       )
     );
+    // No photo on this turn but the clarified complaint had one: keep what
+    // the photo taught us, take the location answer from the fresh pass.
+    const analysis = !imageDataUrl && priorAnalysis ? mergeAnalyses(priorAnalysis, fresh) : fresh;
+    if (analysis !== fresh) events.push('Photo-informed analysis from your earlier message preserved');
     events.push(`Complaint analyzed: ${analysis.category} / ${analysis.urgency}`);
 
     if (!analysis.isComplaint) {
@@ -414,7 +473,7 @@ export class CopilotAgent {
       if (matches.length === 1) property = matches[0];
       else if (matches.length > 1) {
         const text = `I found several properties matching "${analysis.propertyMention}": ${matches.map((m) => m.name).join(', ')}. Which one is affected?`;
-        await this.setPending(conversation.id, content.slice(0, 1000));
+        await this.setPending(conversation.id, content.slice(0, 1000), imageDataUrl ? analysis : null);
         const updated = await this.appendAssistant(conversation.id, text);
         return {
           ...this.emptyResult(updated, text, stated().engine, stated().model, events),
@@ -468,7 +527,7 @@ export class CopilotAgent {
     }
     if (!property) {
       const text = `Which property is affected? I manage: ${allProperties.map((p) => p.name).join(', ')}.`;
-      await this.setPending(conversation.id, content.slice(0, 1000));
+      await this.setPending(conversation.id, content.slice(0, 1000), imageDataUrl ? analysis : null);
       const updated = await this.appendAssistant(conversation.id, text);
       await this.audit(ctx, conversation.id, 'complaint.clarification', 'Asked for property clarification');
       return {
@@ -490,7 +549,7 @@ export class CopilotAgent {
         events.push(`Unit resolved: ${unit.unitNumber}`);
       } else if (matches.length > 1) {
         const text = `I found several units matching "${analysis.unitMention}" in ${property.name}. Could you confirm the exact unit number?`;
-        await this.setPending(conversation.id, content.slice(0, 1000));
+        await this.setPending(conversation.id, content.slice(0, 1000), imageDataUrl ? analysis : null);
         const updated = await this.appendAssistant(conversation.id, text);
         return {
           ...this.emptyResult(updated, text, stated().engine, stated().model, events),

@@ -2,6 +2,8 @@
 // the LETRENTS production shapes (properties, units, maintenance_requests)
 // so the demo adapter can be swapped for a production adapter later.
 
+import type { ComplaintAnalysis } from './agent/schemas';
+
 export type Urgency = 'low' | 'normal' | 'high' | 'emergency';
 export type MaintenanceCategory =
   | 'plumbing'
@@ -99,6 +101,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** Original complaint text awaiting a slot answer (property/unit), if any. */
   pendingComplaint?: string | null;
+  /** Photo-informed analysis captured when clarification was requested; reused on continuation. */
+  pendingAnalysis?: ComplaintAnalysis | null;
   /** Last resolved property in this conversation (sticky context for follow-ups). */
   lastPropertyId?: string | null;
   createdAt: string;
