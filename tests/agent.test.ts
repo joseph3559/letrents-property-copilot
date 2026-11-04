@@ -10,8 +10,10 @@ import {
   CopilotAgent,
   buildExtractionPayload,
   mergeAnalyses,
+  MAX_AUDIT_EVENTS,
+  MAX_CONVERSATIONS,
 } from '../src/server/agent/loop';
-import { UserContext } from '../src/server/types';
+import { AuditEvent, Conversation, UserContext } from '../src/server/types';
 
 const ctx: UserContext = { userId: 'user-demo-manager', orgId: 'org-sunrise-demo', role: 'demo_manager' };
 
@@ -369,5 +371,56 @@ describe('CopilotAgent end-to-end (local engine)', () => {
     await expect(
       agent.handleMessage(ctx, 'Leaking pipe in B201, water everywhere.', undefined)
     ).rejects.toThrow(/iteration budget/);
+  });
+});
+
+describe('CopilotAgent retention guards', () => {
+  function seedConversation(i: number): Conversation {
+    const stamp = new Date(Date.now() - (i + 1) * 60000).toISOString();
+    return {
+      id: `convo-seed-${i}`,
+      orgId: ctx.orgId,
+      userId: ctx.userId,
+      title: `Seeded conversation ${i}`,
+      messages: [],
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+  }
+
+  function seedAudit(i: number): AuditEvent {
+    return {
+      id: `audit-seed-${i}`,
+      orgId: ctx.orgId,
+      conversationId: null,
+      actor: ctx.userId,
+      action: 'seeded.event',
+      entityType: null,
+      entityId: null,
+      detail: `Seeded audit event ${i}`,
+      createdAt: new Date(Date.now() - (i + 1) * 1000).toISOString(),
+    };
+  }
+
+  it('trims conversations to the most recent MAX_CONVERSATIONS', async () => {
+    const { agent, store } = makeAgent();
+    await store.update((db) => {
+      for (let i = 0; i < MAX_CONVERSATIONS + 20; i++) db.conversations.push(seedConversation(i));
+    });
+    const turn = await agent.handleMessage(ctx, 'Hello!', undefined);
+    const db = await store.load();
+    expect(db.conversations.length).toBeLessThanOrEqual(MAX_CONVERSATIONS);
+    // The conversation just written to must survive trimming.
+    expect(db.conversations.some((c) => c.id === turn.conversation.id)).toBe(true);
+  });
+
+  it('trims audit events to the most recent MAX_AUDIT_EVENTS', async () => {
+    const { agent, store } = makeAgent();
+    await store.update((db) => {
+      for (let i = 0; i < MAX_AUDIT_EVENTS + 50; i++) db.auditEvents.push(seedAudit(i));
+    });
+    await agent.handleMessage(ctx, 'Hello!', undefined);
+    const db = await store.load();
+    expect(db.auditEvents.length).toBeLessThanOrEqual(MAX_AUDIT_EVENTS);
   });
 });

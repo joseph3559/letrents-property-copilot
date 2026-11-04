@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
 
 /** Display-only streaming effect. Respects prefers-reduced-motion. Click to skip. */
 export default function Typewriter({
   text,
-  speed = 9,
+  speed = 30,
   className,
   onDone,
 }: {
@@ -38,8 +37,10 @@ export default function Typewriter({
     }
     const timer = setInterval(() => {
       setShown((prev) => {
-        // Ease: reveal faster as the message grows.
-        const next = prev + (text.length > 600 ? 6 : text.length > 250 ? 3 : 1);
+        // Ease: reveal faster as the message grows. Chunks are scaled to the
+        // 30ms tick so perceived speed matches the old 9ms cadence with ~1/3
+        // the re-renders.
+        const next = prev + (text.length > 600 ? 20 : text.length > 250 ? 10 : 4);
         if (next >= text.length) {
           clearInterval(timer);
           if (!doneRef.current) {
@@ -69,10 +70,9 @@ export default function Typewriter({
     >
       {text.slice(0, shown)}
       {shown < text.length && (
-        <motion.span
-          className="ml-0.5 inline-block h-4 w-[7px] translate-y-0.5 rounded-sm bg-letrents-blue"
-          animate={{ opacity: [1, 0.2, 1] }}
-          transition={{ duration: 0.9, repeat: Infinity }}
+        <span
+          aria-hidden
+          className="ml-0.5 inline-block h-4 w-[7px] translate-y-0.5 rounded-sm bg-letrents-blue motion-safe:animate-pulse"
         />
       )}
     </span>

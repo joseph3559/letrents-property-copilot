@@ -150,16 +150,50 @@ interface Envelope<T> {
   data: T;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  const body = (await res.json().catch(() => ({}))) as Envelope<T> & { message: string };
-  if (!res.ok || body.success === false) {
-    throw new Error(body.message || `Request failed (${res.status})`);
+/**
+ * Client-side request budgets. Every request aborts at its budget so a
+ * stalled network or provider surfaces an error instead of spinning forever.
+ */
+export const READ_TIMEOUT_MS = 25000;
+/** Sends may wait out one Meta timeout (90s) plus fallback/SAM work. */
+export const SEND_TIMEOUT_MS = 150000;
+/** Voice uploads + server-side transcription (60s) + headroom. */
+export const TRANSCRIBE_TIMEOUT_MS = 90000;
+
+/** AbortSignal that fires after `ms`, with a cancel for the timer. */
+export function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+async function request<T>(path: string, init?: RequestInit, timeoutMs: number = READ_TIMEOUT_MS): Promise<T> {
+  const { signal, cancel } = withTimeout(timeoutMs);
+  try {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+      signal,
+    });
+    const body = (await res.json().catch(() => ({}))) as Envelope<T> & { message: string };
+    if (!res.ok || body.success === false) {
+      throw new Error(body.message || `Request failed (${res.status})`);
+    }
+    return body.data;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `Request timed out after ${Math.round(timeoutMs / 1000)}s — please check your connection and retry.`
+      );
+    }
+    throw error;
+  } finally {
+    cancel();
   }
-  return body.data;
 }
 
 export const api = {
@@ -170,10 +204,14 @@ export const api = {
       `/api/copilot/conversations/${id}`
     ),
   send: (content: string, conversationId?: string, imageDataUrl?: string) =>
-    request<TurnResult>('/api/copilot/messages', {
-      method: 'POST',
-      body: JSON.stringify({ content, conversationId, imageDataUrl }),
-    }),
+    request<TurnResult>(
+      '/api/copilot/messages',
+      {
+        method: 'POST',
+        body: JSON.stringify({ content, conversationId, imageDataUrl }),
+      },
+      SEND_TIMEOUT_MS
+    ),
   decide: (approvalId: string, decision: 'approve' | 'reject', note?: string) =>
     request<{ approval: ApprovalView; created: MaintenanceView | null }>(
       `/api/copilot/approvals/${approvalId}`,

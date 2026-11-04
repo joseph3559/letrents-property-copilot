@@ -1,8 +1,9 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Loader2, Mic, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isAbortError, TRANSCRIBE_TIMEOUT_MS, withTimeout } from './api';
 
 const SAMPLE_RATE = 16000;
 const MAX_SECONDS = 60;
@@ -55,6 +56,7 @@ export default function VoiceRecorder({
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const reduceMotion = useReducedMotion();
   const chunksRef = useRef<Float32Array[]>([]);
   const nodesRef = useRef<{
     stream: MediaStream;
@@ -103,12 +105,14 @@ export default function VoiceRecorder({
         offset += c.length;
       }
       setTranscribing(true);
+      const { signal, cancel: cancelTimer } = withTimeout(TRANSCRIBE_TIMEOUT_MS);
       try {
         const dataUrl = await blobToDataUrl(encodeWav(merged));
         const res = await fetch('/api/copilot/transcribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ audioDataUrl: dataUrl }),
+          signal,
         });
         const body = (await res.json().catch(() => ({}))) as {
           success?: boolean;
@@ -120,8 +124,15 @@ export default function VoiceRecorder({
         }
         onTranscribed(body.data.transcript);
       } catch (e) {
-        onError(e instanceof Error ? e.message : 'Transcription failed');
+        onError(
+          isAbortError(e)
+            ? 'Transcription timed out — please try a shorter recording.'
+            : e instanceof Error
+              ? e.message
+              : 'Transcription failed'
+        );
       } finally {
+        cancelTimer();
         setTranscribing(false);
       }
     },
@@ -173,7 +184,7 @@ export default function VoiceRecorder({
         aria-label={recording ? 'Stop recording' : 'Record voice note'}
       >
         {transcribing ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-5 w-5 motion-safe:animate-spin" />
         ) : recording ? (
           <Square className="h-5 w-5" />
         ) : (
@@ -191,19 +202,20 @@ export default function VoiceRecorder({
             <div className="flex items-center gap-3 rounded-lg bg-slate-900 px-3 py-2 text-white">
               {recording ? (
                 <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                  </span>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500 motion-safe:animate-pulse" />
                   <span className="flex items-end gap-0.5" aria-hidden>
-                    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                      <motion.span
-                        key={i}
-                        className="w-1 rounded-full bg-letrents-teal"
-                        animate={{ height: [6, 14 + ((i * 5) % 10), 6] }}
-                        transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.12 }}
-                      />
-                    ))}
+                    {[0, 1, 2, 3, 4, 5, 6].map((i) =>
+                      reduceMotion ? (
+                        <span key={i} className="h-2.5 w-1 rounded-full bg-letrents-teal" />
+                      ) : (
+                        <motion.span
+                          key={i}
+                          className="w-1 rounded-full bg-letrents-teal"
+                          animate={{ height: [6, 14 + ((i * 5) % 10), 6] }}
+                          transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.12 }}
+                        />
+                      )
+                    )}
                   </span>
                   <span className="text-xs font-semibold tabular-nums">
                     {elapsed}s / {MAX_SECONDS}s — describe the issue, then stop
@@ -218,7 +230,7 @@ export default function VoiceRecorder({
                 </>
               ) : (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin text-letrents-teal" />
+                  <Loader2 className="h-4 w-4 motion-safe:animate-spin text-letrents-teal" />
                   <span className="text-xs font-medium text-slate-200">
                     Transcribing with Muse Voice…
                   </span>

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useRef } from 'react';
 
 export function ConfirmDialog({
   open,
@@ -29,14 +29,18 @@ export function ConfirmDialog({
   onClose: () => void;
   children?: ReactNode;
 }) {
+  // onClose is an inline callback at call sites: read it through a ref so the
+  // Escape listener subscribes once instead of every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onClose();
+      if (e.key === 'Escape' && !busy) onCloseRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, busy, onClose]);
+  }, [open, busy]);
 
   const danger = tone === 'danger';
   return (

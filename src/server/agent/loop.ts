@@ -154,6 +154,16 @@ export function buildExtractionPayload(content: string, hasImage: boolean): stri
 const MAX_CACHED_CONVERSATION_IMAGES = 10;
 export const conversationImageCache = new Map<string, string>();
 
+/**
+ * Retention bounds for the shared demo store. Every read loads the whole
+ * collection and the UI renders the lists, so unbounded growth would slow
+ * every request and eventually freeze the page. Oldest entries evicted first.
+ */
+export const MAX_CONVERSATIONS = 100;
+export const MAX_AUDIT_EVENTS = 200;
+/** Messages returned per conversation view; the store keeps the full thread. */
+export const MAX_RETURNED_MESSAGES = 200;
+
 export function cacheConversationImage(conversationId: string, imageDataUrl: string): void {
   conversationImageCache.delete(conversationId);
   conversationImageCache.set(conversationId, imageDataUrl);
@@ -230,6 +240,9 @@ export class CopilotAgent {
     };
     await this.deps.store.update((db) => {
       db.auditEvents.push(event);
+      if (db.auditEvents.length > MAX_AUDIT_EVENTS) {
+        db.auditEvents.splice(0, db.auditEvents.length - MAX_AUDIT_EVENTS);
+      }
     });
   }
 
@@ -262,6 +275,11 @@ export class CopilotAgent {
       }
       convo.messages.push({ id: newId('msg'), role: 'user', content, createdAt: nowIso() });
       convo.updatedAt = nowIso();
+      if (db.conversations.length > MAX_CONVERSATIONS) {
+        // The active conversation is the most recently updated, so it survives.
+        db.conversations.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+        db.conversations.length = MAX_CONVERSATIONS;
+      }
       return convo;
     });
 

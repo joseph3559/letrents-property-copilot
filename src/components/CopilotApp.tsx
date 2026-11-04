@@ -25,12 +25,15 @@ import {
   ShieldAlert,
   Sparkles,
   UserCheck,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   api,
+  isAbortError,
+  withTimeout,
   AuditView,
   ConversationSummary,
   DEMO_PROMPTS,
@@ -225,7 +228,7 @@ function GeneratingIndicator({ hasImage }: { hasImage: boolean }) {
             {i < step ? (
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
             ) : i === step ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-letrents-blue" />
+              <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin text-letrents-blue" />
             ) : (
               <CircleDashed className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" />
             )}
@@ -301,7 +304,11 @@ export default function CopilotApp() {
   }, [input]);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Monotonic generation: overlapping refreshes resolve in any order, and only
+  // the latest may write state — a slow response must never clobber fresh UI.
+  const refreshGen = useRef(0);
   const refreshSide = useCallback(async (conversationId?: string) => {
+    const gen = ++refreshGen.current;
     try {
       const [st, recs, acts, convos, port] = await Promise.all([
         api.status(),
@@ -310,12 +317,14 @@ export default function CopilotApp() {
         api.conversations(),
         api.portfolio(),
       ]);
+      if (gen !== refreshGen.current) return;
       setStatus(st);
       setRecords(recs);
       setActivity(acts);
       setConversations(convos);
       setPortfolio(port);
     } catch (e) {
+      if (gen !== refreshGen.current) return;
       setError(e instanceof Error ? e.message : 'Failed to refresh');
     } finally {
       setBooted(true);
@@ -435,8 +444,9 @@ export default function CopilotApp() {
         return;
       }
       setLoadingScenario(scenario.label);
+      const { signal, cancel } = withTimeout(20000);
       try {
-        const res = await fetch(scenario.image);
+        const res = await fetch(scenario.image, { signal });
         if (!res.ok) throw new Error('Demo photo unavailable');
         const blob = await res.blob();
         const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -447,8 +457,11 @@ export default function CopilotApp() {
         });
         await send(scenario.text, dataUrl);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load demo photo');
+        setError(
+          isAbortError(e) ? 'Demo photo timed out — please retry.' : e instanceof Error ? e.message : 'Failed to load demo photo'
+        );
       } finally {
+        cancel();
         setLoadingScenario(null);
       }
     },
@@ -657,18 +670,11 @@ export default function CopilotApp() {
           </div>
         </div>
         <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm dark:bg-white/5 dark:shadow-none">
-          <span className="relative flex h-2 w-2 shrink-0">
-            <span
-              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${
-                status?.engine === 'meta' ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-            <span
-              className={`relative inline-flex h-2 w-2 rounded-full ${
-                status?.engine === 'meta' ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-          </span>
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              status?.engine === 'meta' ? 'bg-emerald-400' : 'bg-amber-400'
+            }`}
+          />
           <span className="truncate text-[11px] font-semibold text-slate-600 dark:text-slate-200" title={status?.model ?? ''}>
             {status ? (status.engine === 'meta' ? `Meta AI · ${status.model}` : 'Local fallback') : 'Connecting…'}
           </span>
@@ -679,7 +685,7 @@ export default function CopilotApp() {
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 dark:border-white/10 dark:bg-transparent dark:text-slate-300 dark:shadow-none dark:hover:bg-white/5 dark:hover:text-white"
           title="Clear conversations and copilot-created records; restore seed data"
         >
-          <RotateCcw className={`h-3 w-3 ${resetting ? 'animate-spin' : ''}`} />
+          <RotateCcw className={`h-3 w-3 ${resetting ? 'motion-safe:animate-spin' : ''}`} />
           {resetting ? 'Resetting…' : 'Reset demo data'}
         </button>
         <div className="mt-1.5 text-center text-[10px] text-slate-400 dark:text-slate-500">Synthetic dataset · no real tenants</div>
@@ -805,7 +811,7 @@ export default function CopilotApp() {
                         {r.status === 'resolved' || r.status === 'approved' ? (
                           <CheckCircle2 className="h-3 w-3" />
                         ) : r.status === 'in_progress' ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <Wrench className="h-3 w-3" />
                         ) : r.status === 'rejected' || r.status === 'cancelled' ? (
                           <X className="h-3 w-3" />
                         ) : (
@@ -1008,7 +1014,7 @@ export default function CopilotApp() {
                 </span>
               </div>
             ) : (
-              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin text-slate-400" />
             )}
             <ThemeToggle />
             <button
@@ -1060,7 +1066,7 @@ export default function CopilotApp() {
                       >
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-letrents-mist text-letrents-blue dark:bg-white/10 dark:text-letrents-teal">
                           {loading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
                           ) : (
                             <Icon className="h-4 w-4" />
                           )}
@@ -1248,7 +1254,7 @@ export default function CopilotApp() {
                   aria-label="Send message"
                 >
                   {sending ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <Loader2 className="h-5 w-5 motion-safe:animate-spin" />
                   ) : (
                     <SendHorizontal className="h-5 w-5" />
                   )}

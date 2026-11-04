@@ -63,6 +63,14 @@ body {
   .approval-pending {
     animation: none;
   }
+  /* Safety net: no infinite CSS motion anywhere for reduced-motion users,
+     even if a utility class below was missed elsewhere. */
+  .animate-spin,
+  .animate-ping,
+  .animate-pulse,
+  .animate-bounce {
+    animation: none !important;
+  }
 }
 
 /* During a theme flip, kill all transitions so every surface changes in one

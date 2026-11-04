@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { loadConfig } from '@/server/config';
 import { getUserContext } from '@/server/context';
 import { getStore } from '@/server/store';
+import { MAX_RETURNED_MESSAGES } from '@/server/agent/loop';
 import { fail, ok, toSafeErrorMessage } from '@/server/lib/response';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +17,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const approvals = db.approvals
       .filter((a) => a.orgId === ctx.orgId && a.conversationId === id)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return ok({ conversation, approvals }, 'Conversation retrieved');
+    // Window the thread: the client animates every message, so an unbounded
+    // history would freeze the page. The store keeps the full thread.
+    const windowed = { ...conversation, messages: conversation.messages.slice(-MAX_RETURNED_MESSAGES) };
+    return ok({ conversation: windowed, approvals }, 'Conversation retrieved');
   } catch (error) {
     return fail(toSafeErrorMessage(error, 'Failed to load conversation'), 500, 'LOAD_ERROR');
   }

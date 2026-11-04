@@ -1,6 +1,7 @@
 import { loadConfig } from '@/server/config';
 import { getUserContext } from '@/server/context';
 import { getStore } from '@/server/store';
+import { MAX_CONVERSATIONS } from '@/server/agent/loop';
 import { fail, ok, toSafeErrorMessage } from '@/server/lib/response';
 
 export async function GET() {
@@ -12,6 +13,7 @@ export async function GET() {
     const conversations = db.conversations
       .filter((c) => c.orgId === ctx.orgId)
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      .slice(0, MAX_CONVERSATIONS)
       .map((c) => ({
         id: c.id,
         title: c.title,

@@ -51,10 +51,7 @@ export default function StepTimeline({ events }: { events: string[] }) {
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white/70 p-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-        </span>
+        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
         <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
           Agent trail
         </span>
